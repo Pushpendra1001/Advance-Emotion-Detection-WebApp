@@ -42,88 +42,23 @@ if not os.path.exists(EMOTIONS_CSV):
 
 
 model = None
-face_cascade = None
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 emotion_labels = ['anger', 'contempt', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 active_sessions = {}
 active_cameras = {}
 
+# Update model path constant
+MODEL_PATH = os.path.join('src', 'models', 'emotion-model.keras')
+
+# Update load_model_file function
 def load_model_file(model_path):
-    global model, face_cascade
+    global model
     try:
-        # Check if model file exists
-        if not os.path.exists(model_path):
-            print(f"Model file not found at: {model_path}")
-            return False
-        
-        print(f"Loading model from: {model_path}")
-        
-        # Load the model with error handling - using tf.keras directly
-        try:
-            # Try different approaches for model loading
-            try:
-                # First, try standard load_model
-                model = tf.keras.models.load_model(model_path, compile=False)
-            except Exception as e1:
-                print(f"First attempt failed: {str(e1)}")
-                # Second, try a custom loading approach
-                try:
-                    # Try loading with skip_mismatch option (for incompatible architectures)
-                    model = tf.keras.models.load_model(
-                        model_path, 
-                        compile=False,
-                        options=tf.saved_model.LoadOptions(
-                            experimental_io_device='/job:localhost'
-                        )
-                    )
-                except Exception as e2:
-                    print(f"Second attempt failed: {str(e2)}")
-                    # Last resort: Create a simple model with similar structure
-                    print("Attempting to rebuild model and load weights only")
-                    # Build a basic CNN model
-                    inputs = tf.keras.Input(shape=(96, 96, 3))
-                    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
-                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-                    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
-                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-                    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
-                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-                    x = tf.keras.layers.Flatten()(x)
-                    x = tf.keras.layers.Dense(128, activation='relu')(x)
-                    outputs = tf.keras.layers.Dense(8, activation='softmax')(x)
-                    
-                    model = tf.keras.Model(inputs=inputs, outputs=outputs)
-                    try:
-                        model.load_weights(model_path)
-                    except:
-                        return False
-            
-            model.compile(
-                optimizer='adam',
-                loss='categorical_crossentropy',
-                metrics=['accuracy']
-            )
-            print("Model loaded successfully")
-        except Exception as e:
-            print(f"Error loading the Keras model: {str(e)}")
-            return False
-        
-        # Load face cascade
-        try:
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            if face_cascade.empty():
-                print("Error: Could not load face cascade classifier")
-                return False
-            print("Face cascade loaded successfully")
-        except Exception as e:
-            print(f"Error loading face cascade: {str(e)}")
-            return False
-            
+        model = tf.keras.models.load_model(model_path)
+        print("Model loaded successfully!")
         return True
-        
     except Exception as e:
-        print(f"Unexpected error loading model: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error loading model: {str(e)}")
         return False
 
 def validate_model_path(model_path):
@@ -199,50 +134,45 @@ def process_frame(frame, email, model_type, session_id):
             print("No model loaded. Please load a model first.")
             return frame
         
+        # Convert to grayscale for face detection
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(50, 50))
+        faces = face_cascade.detectMultiScale(gray, 1.1, 5)
         
+        # Draw each detected face and emotion
         for (x, y, w, h) in faces:
-            face = frame[y:y + h, x:x + w]
+            # Extract and preprocess face
+            face = frame[y:y+h, x:x+w]
             face = cv2.resize(face, (96, 96))
-            face = face / 255.0
+            face = face.astype('float32') / 255.0
             face = np.expand_dims(face, axis=0)
             
-            # Check model input shape requirements
-            input_shape = model.input_shape
-            if len(input_shape) > 3:  # Model expects batch dimension
-                if input_shape[1:] != (96, 96, 3):
-                    print(f"Warning: Model expects input shape {input_shape} but got (96, 96, 3)")
-            else:  # Model doesn't have batch dimension in shape
-                if input_shape != (96, 96, 3):
-                    print(f"Warning: Model expects input shape {input_shape} but got (96, 96, 3)")
-            
-            prediction = model.predict(face)
-            emotion_idx = np.argmax(prediction)
-            
-            # Ensure emotion_idx is within range
-            if emotion_idx >= len(emotion_labels):
-                emotion_idx = 0
-                print(f"Warning: Prediction index {emotion_idx} out of range. Using default.")
-                
+            # Make prediction
+            prediction = model.predict(face, verbose=0)
+            emotion_idx = np.argmax(prediction[0])
             emotion = emotion_labels[emotion_idx]
             confidence = float(prediction[0][emotion_idx])
             
-            save_emotion(email, emotion, confidence, model_type, session_id)
+            # Draw rectangle and emotion text
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            text = f"{emotion}: {confidence*100:.1f}%"
+            # Improve text visibility
+            cv2.putText(frame, text, (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.9, 
+                       (0, 255, 0), 2)
             
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            label = f"{emotion} ({confidence:.2f})"
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    
+            # Save emotion data
+            if session_id and session_id in active_sessions:
+                save_emotion(email, emotion, confidence, model_type, session_id)
+            
+            print(f"Detected emotion: {emotion} ({confidence*100:.1f}%)")
+            
+        return frame
+        
     except Exception as e:
-        print(f"Error in processing frame: {str(e)}")
+        print(f"Error in process_frame: {str(e)}")
         import traceback
         traceback.print_exc()
-        # Draw error message on frame
-        cv2.putText(frame, "Error processing frame", (30, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-    
-    return frame
+        return frame
 
 @app.route('/check-models')
 def check_models():
@@ -272,25 +202,27 @@ def generate_frames(email, model_type, session_id):
     
     active_cameras[session_id] = cap
     
-    while session_id in active_sessions:  # Check if session is still active
+    while session_id in active_sessions:
         success, frame = cap.read()
         if not success:
             break
         
         try:
+            # Process frame with emotion detection
             processed_frame = process_frame(frame, email, model_type, session_id)
-            _, buffer = cv2.imencode('.jpg', processed_frame)
+            
+            # Convert frame to JPEG
+            ret, buffer = cv2.imencode('.jpg', processed_frame)
             frame_bytes = buffer.tobytes()
             
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                    
         except Exception as e:
-            print(f"Error processing frame: {str(e)}")
+            print(f"Error in generate_frames: {str(e)}")
             continue
     
-    # Clean up camera when done
-    if cap and cap.isOpened():
+    if cap.isOpened():
         cap.release()
 
 @app.route('/register', methods=['POST'])
@@ -498,31 +430,37 @@ def load_model_endpoint():
 @app.route('/video_feed')
 def video_feed():
     try:
-        # Get parameters from query string
         model_type = request.args.get('model_type', 'general-analysis')
         session_id = request.args.get('session_id')
-        email = session.get('user', 'test@example.com')  # Get email from session or use default
+        email = session.get('user', 'test@example.com')
         
-        if not model_type:
-            return jsonify({"error": "Model type is required"}), 400
-             
-        # Check if model is loaded
         if model is None:
             return jsonify({"error": "No model loaded"}), 400
-             
-        # Create and return the video feed response
-        response = Response(
-            generate_frames(email, model_type, session_id),
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
-        
+            
+        def generate():
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                raise RuntimeError("Could not start camera.")
+                
+            while True:
+                success, frame = cap.read()
+                if not success:
+                    break
+                    
+                processed_frame = process_frame(frame, email, model_type, session_id)
+                ret, buffer = cv2.imencode('.jpg', processed_frame)
+                frame_bytes = buffer.tobytes()
+                
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                       
+            cap.release()
+            
+        return Response(generate(),
+                       mimetype='multipart/x-mixed-replace; boundary=frame')
+                       
     except Exception as e:
         print(f"Error in video_feed: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # Add this helper function to create a preview frame with text

@@ -19,9 +19,9 @@ import StopIcon from '@mui/icons-material/Stop'
 import axios from 'axios'
 
 const modelPaths = {
-  'doctor-patient': 'models/emotion_model.keras',
-  'teacher-student': 'models/emotion_model.keras',
-  'general-analysis': 'models/emotion_model.keras'
+  'doctor-patient': 'src/models/emotion-model.keras',
+  'teacher-student': 'src/models/emotion-model.keras', 
+  'general-analysis': 'src/models/emotion-model.keras'
 };
 
 const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:5005';
@@ -294,45 +294,41 @@ export default function EmotionDetection() {
   // Cleanup effect
   useEffect(() => {
     return () => {
-      if (isTracking && sessionId) {
-        stopTracking();
+      // Cleanup video elements when component unmounts
+      const videoElement = document.getElementById('video-feed');
+      const overlayElement = document.getElementById('emotion-overlay');
+      
+      if (videoElement && videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+      
+      if (overlayElement) {
+        overlayElement.remove();
       }
     };
-  }, [stopTracking, isTracking, sessionId]);
+  }, []);
 
   const startVideoFeed = async () => {
     try {
-      const videoUrl = new URL(`${PYTHON_API_URL}/video_feed`);
-      videoUrl.searchParams.append('model_type', modelId);
-      if (sessionId) {
-        videoUrl.searchParams.append('session_id', sessionId);
-      }
-      
-      console.log('Starting video feed from:', videoUrl.toString());
-      
       const videoElement = document.getElementById('video-feed');
       if (!videoElement) {
         throw new Error('Video element not found');
       }
 
-      // Clear any existing source and errors
-      videoElement.srcObject = null;
-      videoElement.src = '';
+      // Create video URL with timestamp to prevent caching
+      const videoUrl = new URL(`${PYTHON_API_URL}/video_feed`);
+      videoUrl.searchParams.append('model_type', modelId);
+      videoUrl.searchParams.append('t', Date.now());  // Prevent caching
+      if (sessionId) {
+        videoUrl.searchParams.append('session_id', sessionId);
+      }
 
-      // Set up error handling
-      videoElement.onerror = (e) => {
-        console.error('Video feed error:', e);
-        setError('Failed to start video feed');
-      };
-
-      // Set up the video stream
-      videoElement.src = videoUrl.toString();
+      // Set up video element
       videoElement.style.display = 'block';
+      videoElement.src = videoUrl.toString();
       
-      // Add load event listener
-      videoElement.onloadeddata = () => {
-        console.log('Video feed started successfully');
-      };
+      console.log('Starting video feed from:', videoUrl.toString());
 
     } catch (err) {
       console.error('Error starting video feed:', err);
@@ -411,16 +407,14 @@ export default function EmotionDetection() {
                     alignItems: 'center'
                   }}
                 >
-                  <video
+                  <img
                     id="video-feed"
-                    autoPlay
-                    playsInline
-                    muted
+                    alt="Emotion Detection Feed"
                     style={{ 
                       width: '100%', 
                       height: '100%', 
                       objectFit: 'contain',
-                      display: isTracking ? 'block' : 'none' 
+                      display: isTracking ? 'block' : 'none'
                     }}
                   />
                   {!isTracking && (

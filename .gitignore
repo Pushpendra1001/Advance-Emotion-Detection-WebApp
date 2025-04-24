@@ -1,0 +1,21 @@
+# Node.js dependencies
+node_modules/
+
+# Python virtual environments
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# VS Code settings (optional, commonly ignored)
+.vscode/
+
+# Mac system files (optional)
+.DS_Store

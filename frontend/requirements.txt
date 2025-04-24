@@ -1,0 +1,8 @@
+Flask
+flask-cors
+opencv-python
+numpy
+tensorflow
+werkzeug
+pandas
+uuid

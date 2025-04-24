@@ -12,16 +12,18 @@ import {
   List,
   ListItem,
   ListItemText,
+  LinearProgress
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
+import { PieChart, Pie, Tooltip, Legend, Cell, ResponsiveContainer } from 'recharts';
 import axios from 'axios'
 
 const modelPaths = {
-  'doctor-patient': 'src/models/emotion-model.keras',
-  'teacher-student': 'src/models/emotion-model.keras', 
-  'general-analysis': 'src/models/emotion-model.keras'
+  'doctor-patient': 'src/models/my_model.keras',
+  'teacher-student': 'src/models/my_model.keras', 
+  'general-analysis': 'src/models/my_model.keras'
 };
 
 const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:5005';
@@ -94,27 +96,56 @@ async function fetchAvailableModels() {
 const SessionReport = ({ report }) => {
   if (!report) return null;
 
+  // Calculate max confidence for color coding
+  const maxConfidence = Math.max(...Object.values(report.emotionPercentages || {}));
+
   return (
     <Box>
       <List>
         <ListItem>
           <ListItemText 
-            primary="Session Duration" 
-            secondary={`${report.duration} minutes`}
+            primary={
+              <Typography variant="h6" color="primary">
+                Session Summary
+              </Typography>
+            }
           />
         </ListItem>
         <Divider />
         <ListItem>
           <ListItemText 
-            primary="Dominant Emotion" 
-            secondary={report.dominantEmotion || 'None detected'}
+            primary="Session Duration" 
+            secondary={
+              <Typography variant="body1" color="text.secondary">
+                {report.duration.toFixed(1)} minutes
+              </Typography>
+            }
           />
         </ListItem>
         <Divider />
         <ListItem>
           <ListItemText 
             primary="Total Detections" 
-            secondary={report.totalDetections}
+            secondary={
+              <Typography variant="body1" color="text.secondary">
+                {report.totalDetections} emotions detected
+              </Typography>
+            }
+          />
+        </ListItem>
+        <Divider />
+        <ListItem>
+          <ListItemText 
+            primary="Dominant Emotion" 
+            secondary={
+              <Typography 
+                variant="body1" 
+                color="primary"
+                sx={{ fontWeight: 'bold' }}
+              >
+                {report.dominantEmotion || 'None detected'}
+              </Typography>
+            }
           />
         </ListItem>
         <Divider />
@@ -124,15 +155,70 @@ const SessionReport = ({ report }) => {
             secondary={
               <Box sx={{ mt: 1 }}>
                 {Object.entries(report.emotionPercentages || {}).map(([emotion, percentage]) => (
-                  <Typography key={emotion} variant="body2">
-                    {emotion}: {percentage}% ({report.emotionBreakdown[emotion]} times)
-                  </Typography>
+                  <Box 
+                    key={emotion} 
+                    sx={{ 
+                      mb: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ width: '30%' }}>
+                      {emotion}:
+                    </Typography>
+                    <Box sx={{ width: '60%', mr: 1 }}>
+                      <LinearProgress
+                        variant="determinate"
+                        value={percentage}
+                        sx={{
+                          height: 8,
+                          borderRadius: 5,
+                          backgroundColor: 'grey.200',
+                          '& .MuiLinearProgress-bar': {
+                            backgroundColor: percentage === maxConfidence ? 'primary.main' : 'secondary.main'
+                          }
+                        }}
+                      />
+                    </Box>
+                    <Typography variant="body2" sx={{ width: '10%' }}>
+                      {percentage.toFixed(1)}%
+                    </Typography>
+                  </Box>
                 ))}
               </Box>
             }
           />
         </ListItem>
       </List>
+      
+      {/* Add real-time chart */}
+      {report.emotionBreakdown && Object.keys(report.emotionBreakdown).length > 0 && (
+        <Box sx={{ mt: 3, height: 300 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={Object.entries(report.emotionBreakdown).map(([emotion, count]) => ({
+                  name: emotion,
+                  value: count
+                }))}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+              >
+                {Object.entries(report.emotionBreakdown).map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </Box>
+      )}
     </Box>
   );
 };

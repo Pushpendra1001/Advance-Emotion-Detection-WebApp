@@ -43,12 +43,12 @@ if not os.path.exists(EMOTIONS_CSV):
 
 model = None
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-emotion_labels = ['anger', 'contempt', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+emotion_labels = ['anger', 'Happy', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 active_sessions = {}
 active_cameras = {}
 
-# Update model path constant
-MODEL_PATH = os.path.join('src', 'models', 'emotion-model.keras')
+# Update model path constant 
+MODEL_PATH = os.path.join('src', 'models', 'my_model.keras')  # Changed from emotion-model.keras
 
 # Update load_model_file function
 def load_model_file(model_path):
@@ -63,21 +63,13 @@ def load_model_file(model_path):
 
 def validate_model_path(model_path):
     """Validate and fix model path if necessary"""
-    # If path is already absolute, use it
-    if os.path.isabs(model_path):
-        if os.path.exists(model_path):
-            return model_path
-        else:
-            return None
-    
-    # Try different locations based on relative path
     potential_paths = [
         model_path,  # As provided
         os.path.join(os.getcwd(), model_path),  # Relative to current working directory
         os.path.join(os.getcwd(), 'models', model_path),  # In models subdirectory
         os.path.join(os.getcwd(), 'frontend', model_path),  # In frontend subdirectory
-        os.path.join(os.getcwd(), 'frontend', '/models/emotion_model.keras'),  # Fixed path in frontend
-        os.path.join(os.getcwd(), 'backend', 'models', '/models/emotion_model.keras')  # Path in backend/models
+        os.path.join(os.getcwd(), 'frontend', '/models/my_model.keras'),  # Fixed path in frontend
+        os.path.join(os.getcwd(), 'backend', 'models', '/models/my_model.keras')  # Path in backend/models
     ]
     
     for path in potential_paths:
@@ -102,17 +94,33 @@ def save_emotion(email, emotion, confidence, model_type, session_id=None):
             'email': email,
             'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
             'emotion': emotion,
-            'confidence': confidence,
+            'confidence': float(confidence),  # Ensure confidence is float
             'model_type': model_type,
             'session_id': session_id
         }
         
-        # Add to active session if session_id provided
+        # Add to active session with more detail
         if session_id and session_id in active_sessions:
             active_sessions[session_id]['emotions'].append({
                 **new_data,
-                'timestamp': timestamp
+                'timestamp': timestamp,
+                'confidence_score': float(confidence * 100)  # Store confidence as percentage
             })
+            
+            # Update real-time statistics
+            emotions = active_sessions[session_id]['emotions']
+            emotion_counts = {}
+            for e in emotions:
+                emotion_counts[e['emotion']] = emotion_counts.get(e['emotion'], 0) + 1
+            
+            total = len(emotions)
+            active_sessions[session_id]['current_stats'] = {
+                'total_detections': total,
+                'emotion_counts': emotion_counts,
+                'emotion_percentages': {
+                    e: (count/total * 100) for e, count in emotion_counts.items()
+                }
+            }
         
         # Save to CSV
         try:
@@ -140,14 +148,19 @@ def process_frame(frame, email, model_type, session_id):
         
         # Draw each detected face and emotion
         for (x, y, w, h) in faces:
-            # Extract and preprocess face
-            face = frame[y:y+h, x:x+w]
-            face = cv2.resize(face, (96, 96))
-            face = face.astype('float32') / 255.0
-            face = np.expand_dims(face, axis=0)
+            # Extract face ROI from grayscale image
+            face_roi = gray[y:y+h, x:x+w]
+            
+            # Preprocess for model
+            face_roi = cv2.resize(face_roi, (48, 48))  # Changed to 48x48
+            face_roi = face_roi.astype('float32') / 255.0  # Normalize to [0,1]
+            
+            # Reshape to match model's expected input shape (None, 48, 48, 1)
+            face_roi = np.expand_dims(face_roi, axis=-1)  # Add channel dimension
+            face_roi = np.expand_dims(face_roi, axis=0)   # Add batch dimension
             
             # Make prediction
-            prediction = model.predict(face, verbose=0)
+            prediction = model.predict(face_roi, verbose=0)
             emotion_idx = np.argmax(prediction[0])
             emotion = emotion_labels[emotion_idx]
             confidence = float(prediction[0][emotion_idx])
@@ -155,10 +168,13 @@ def process_frame(frame, email, model_type, session_id):
             # Draw rectangle and emotion text
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             text = f"{emotion}: {confidence*100:.1f}%"
-            # Improve text visibility
+            
+            # Improve text visibility with background
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+            cv2.rectangle(frame, (x, y-30), (x + text_size[0], y), (0, 255, 0), -1)
             cv2.putText(frame, text, (x, y-10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, 
-                       (0, 255, 0), 2)
+                       (0, 0, 0), 2)  # Black text on green background
             
             # Save emotion data
             if session_id and session_id in active_sessions:

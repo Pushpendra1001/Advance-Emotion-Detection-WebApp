@@ -63,8 +63,18 @@ const Analytics = () => {
   const [selectedEmotion, setSelectedEmotion] = useState('all');
   const [selectedSession, setSelectedSession] = useState(null);
 
+  // Add polling interval
   useEffect(() => {
+    // Initial fetch
     fetchAnalytics();
+
+    // Set up polling every 5 seconds
+    const intervalId = setInterval(() => {
+      fetchAnalytics();
+    }, 5000); // Update every 5 seconds
+
+    // Cleanup on unmount
+    return () => clearInterval(intervalId);
   }, [timeRange]);
 
   const fetchAnalytics = async () => {
@@ -82,43 +92,61 @@ const Analytics = () => {
         throw new Error(await response.text() || 'Failed to fetch analytics data');
       }
       
-      const data = await response.json();
-      console.log('Analytics data:', data); // Add logging
-      setData(data);
+      const rawData = await response.json();
+      console.log('Raw analytics data:', rawData); // Add this for debugging
+      
+      const processedData = processAnalyticsData(rawData);
+      setData(processedData);
     } catch (err) {
       console.error('Analytics error:', err);
       setError(err.message);
     } finally {
-      setLoading(false);
+      setLoading(false); // Add this to ensure loading state is updated
     }
   };
 
   const processAnalyticsData = (rawData) => {
+    if (!rawData || !rawData.emotionsByModel) {
+      return {
+        emotionsByTime: [],
+        emotionsByModel: [],
+        sessionHistory: [],
+        emotionTrends: []
+      };
+    }
+
     // Calculate emotion percentages
-    const totalEmotions = rawData.emotionsByModel.reduce((acc, curr) => acc + curr.count, 0);
+    const totalEmotions = rawData.emotionsByModel.reduce((acc, curr) => acc + curr.count, 0) || 0;
     const emotionsWithPercentage = rawData.emotionsByModel.map(item => ({
       ...item,
-      percentage: ((item.count / totalEmotions) * 100).toFixed(2)
+      percentage: totalEmotions > 0 ? ((item.count / totalEmotions) * 100).toFixed(2) : 0
     }));
 
     // Calculate emotion trends
-    const emotionTrends = calculateEmotionTrends(rawData.emotionsByTime);
+    const emotionTrends = calculateEmotionTrends(rawData.emotionsByTime || []);
 
     return {
       ...rawData,
       emotionsByModel: emotionsWithPercentage,
-      emotionTrends
+      emotionTrends,
+      sessionHistory: rawData.sessionHistory || []
     };
   };
 
   const calculateEmotionTrends = (timeData) => {
+    if (!Array.isArray(timeData) || timeData.length === 0) {
+      return [];
+    }
+
     const trends = {};
     timeData.forEach(entry => {
-      const hour = new Date(entry.timestamp).getHours();
-      if (!trends[hour]) {
-        trends[hour] = { hour, count: 0 };
+      if (entry && entry.timestamp) {
+        const hour = new Date(entry.timestamp).getHours();
+        if (!trends[hour]) {
+          trends[hour] = { hour, count: 0 };
+        }
+        trends[hour].count += entry.count || 0;
       }
-      trends[hour].count += entry.count;
     });
     return Object.values(trends);
   };

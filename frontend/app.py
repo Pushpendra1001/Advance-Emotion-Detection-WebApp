@@ -1,4 +1,5 @@
 import os
+import traceback
 import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, request, session
@@ -94,45 +95,40 @@ def save_emotion(email, emotion, confidence, model_type, session_id=None):
             'email': email,
             'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
             'emotion': emotion,
-            'confidence': float(confidence),  # Ensure confidence is float
+            'confidence': float(confidence),
             'model_type': model_type,
             'session_id': session_id
         }
         
-        # Add to active session with more detail
-        if session_id and session_id in active_sessions:
-            active_sessions[session_id]['emotions'].append({
-                **new_data,
-                'timestamp': timestamp,
-                'confidence_score': float(confidence * 100)  # Store confidence as percentage
-            })
-            
-            # Update real-time statistics
-            emotions = active_sessions[session_id]['emotions']
-            emotion_counts = {}
-            for e in emotions:
-                emotion_counts[e['emotion']] = emotion_counts.get(e['emotion'], 0) + 1
-            
-            total = len(emotions)
-            active_sessions[session_id]['current_stats'] = {
-                'total_detections': total,
-                'emotion_counts': emotion_counts,
-                'emotion_percentages': {
-                    e: (count/total * 100) for e, count in emotion_counts.items()
-                }
-            }
-        
-        # Save to CSV
+        # Save to CSV immediately
         try:
-            df = pd.read_csv(EMOTIONS_CSV)
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(EMOTIONS_CSV), exist_ok=True)
+            
+            # Read existing data or create new DataFrame
+            if os.path.exists(EMOTIONS_CSV):
+                df = pd.read_csv(EMOTIONS_CSV)
+            else:
+                df = pd.DataFrame(columns=['email', 'timestamp', 'emotion', 'confidence', 'model_type', 'session_id'])
+            
+            # Append new data
             df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
             df.to_csv(EMOTIONS_CSV, index=False)
+            print(f"Emotion saved to CSV: {emotion} ({confidence*100:.1f}%)")
+            
         except Exception as e:
             print(f"Error saving to CSV: {str(e)}")
+            traceback.print_exc()
+            
+        # Update active session stats
+        if session_id and session_id in active_sessions:
+            if 'emotions' not in active_sessions[session_id]:
+                active_sessions[session_id]['emotions'] = []
+            
+            active_sessions[session_id]['emotions'].append(new_data)
             
     except Exception as e:
-        print(f"Error saving emotion: {str(e)}")
-        import traceback
+        print(f"Error in save_emotion: {str(e)}")
         traceback.print_exc()
         
         
@@ -292,21 +288,21 @@ def login():
 @app.route('/analytics', methods=['GET'])
 def get_analytics():
     try:
-        # Get user email from session or use test email for development
         email = session.get('user', 'test@example.com')
+        print(f"Fetching analytics for user: {email}")
         
-        # Check if file exists and is not empty
-        if not os.path.exists(EMOTIONS_CSV) or os.stat(EMOTIONS_CSV).st_size == 0:
+        if not os.path.exists(EMOTIONS_CSV):
             return jsonify({
                 "sessionHistory": [],
                 "emotionsByTime": [],
                 "emotionsByModel": [],
                 "emotionTrends": []
             })
-            
-        # Read CSV and filter user data
+        
+        # Read CSV and process data
         df = pd.read_csv(EMOTIONS_CSV)
-        user_data = df[df['email'] == email].copy()  # Create a copy to avoid warnings
+        user_data = df[df['email'] == email].copy()
+        user_data['timestamp'] = pd.to_datetime(user_data['timestamp'])
         
         if user_data.empty:
             return jsonify({
@@ -316,27 +312,18 @@ def get_analytics():
                 "emotionTrends": []
             })
 
-        # Convert timestamp to datetime
-        user_data['timestamp'] = pd.to_datetime(user_data['timestamp'])
-        
-        # Process each session separately
+        # Process sessions
         session_summaries = []
         for session_id in user_data['session_id'].unique():
-            if pd.isna(session_id):  # Skip if session_id is NaN
+            if pd.isna(session_id):
                 continue
                 
             session_data = user_data[user_data['session_id'] == session_id]
             
-            # Skip if no data for this session
-            if len(session_data) == 0:
-                continue
-                
             try:
-                # Calculate emotion counts
                 emotion_counts = session_data['emotion'].value_counts().to_dict()
                 total_emotions = len(session_data)
                 
-                # Calculate percentages
                 emotion_percentages = {
                     emotion: round((count / total_emotions * 100), 2)
                     for emotion, count in emotion_counts.items()
@@ -348,8 +335,8 @@ def get_analytics():
                     'endTime': session_data['timestamp'].max().isoformat(),
                     'duration': round((session_data['timestamp'].max() - 
                                     session_data['timestamp'].min()).total_seconds() / 60, 2),
-                    'modelType': session_data['model_type'].iloc[0] if not session_data['model_type'].empty else 'unknown',
-                    'dominantEmotion': max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else 'unknown',
+                    'modelType': session_data['model_type'].iloc[0],
+                    'dominantEmotion': max(emotion_counts.items(), key=lambda x: x[1])[0],
                     'totalDetections': total_emotions,
                     'emotionBreakdown': emotion_counts,
                     'emotionPercentages': emotion_percentages
@@ -357,34 +344,40 @@ def get_analytics():
             except Exception as e:
                 print(f"Error processing session {session_id}: {str(e)}")
                 continue
-        
-        # Sort sessions by start time, most recent first
+
+        # Sort by time
         session_summaries.sort(key=lambda x: x['startTime'], reverse=True)
         
-        # Group data for time series and model analysis
-        emotions_by_time = (user_data.groupby(['timestamp', 'emotion'])
+        # Group data by time and emotion
+        emotions_by_time = (user_data.groupby([user_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M'), 'emotion'])
             .size()
             .reset_index(name='count')
-            .assign(timestamp=lambda x: x['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S'))
             .to_dict('records'))
             
+        # Group by model type
         emotions_by_model = (user_data.groupby(['model_type', 'emotion'])
             .size()
             .reset_index(name='count')
             .to_dict('records'))
-        
+            
+        # Calculate emotion trends by hour
+        emotion_trends = (user_data.groupby([user_data['timestamp'].dt.hour, 'emotion'])
+            .size()
+            .reset_index(name='count')
+            .to_dict('records'))
+
         return jsonify({
             "sessionHistory": session_summaries,
             "emotionsByTime": emotions_by_time,
             "emotionsByModel": emotions_by_model,
-            "emotionTrends": []
+            "emotionTrends": emotion_trends
         })
         
     except Exception as e:
         print(f"Analytics Error: {str(e)}")
-        import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500 
+        return jsonify({"error": str(e)}), 500
+    
     
 @app.route('/logout', methods=['POST'])
 def logout():

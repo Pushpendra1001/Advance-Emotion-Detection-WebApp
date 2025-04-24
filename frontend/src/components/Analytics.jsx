@@ -70,24 +70,24 @@ const Analytics = () => {
   const fetchAnalytics = async () => {
     try {
       const response = await fetch(`${PYTHON_API_URL}/analytics`, {
+        method: 'GET',
         credentials: 'include',
         headers: {
           'Accept': 'application/json',
-          'Access-Control-Allow-Credentials': 'true'
+          'Content-Type': 'application/json'
         }
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch analytics data');
+        throw new Error(await response.text() || 'Failed to fetch analytics data');
       }
       
-      const rawData = await response.json();
-      const processedData = processAnalyticsData(rawData);
-      setData(processedData);
+      const data = await response.json();
+      console.log('Analytics data:', data); // Add logging
+      setData(data);
     } catch (err) {
-      setError(err.message);
       console.error('Analytics error:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }

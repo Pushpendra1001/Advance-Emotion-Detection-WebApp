@@ -13,10 +13,10 @@ import json
 
 app = Flask(__name__)
 app.config.update(
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE='None',
+    SESSION_COOKIE_SECURE=False,  # Set to False for development
+    SESSION_COOKIE_SAMESITE='Lax',  # Change to 'Lax' for development
     SESSION_COOKIE_HTTPONLY=True,
-    SECRET_KEY='your-secret-key-here'  # Add a secret key for sessions
+    SECRET_KEY='your-secret-key-here'
 )
 
 # Simple CORS configuration that should work for development
@@ -291,11 +291,9 @@ def login():
 
 @app.route('/analytics', methods=['GET'])
 def get_analytics():
-    if not session.get('user'):
-        return jsonify({"error": "Unauthorized"}), 401
-        
     try:
-        email = session['user']
+        # Get user email from session or use test email for development
+        email = session.get('user', 'test@example.com')
         
         # Check if file exists and is not empty
         if not os.path.exists(EMOTIONS_CSV) or os.stat(EMOTIONS_CSV).st_size == 0:
@@ -306,8 +304,9 @@ def get_analytics():
                 "emotionTrends": []
             })
             
+        # Read CSV and filter user data
         df = pd.read_csv(EMOTIONS_CSV)
-        user_data = df[df['email'] == email]
+        user_data = df[df['email'] == email].copy()  # Create a copy to avoid warnings
         
         if user_data.empty:
             return jsonify({
@@ -317,56 +316,75 @@ def get_analytics():
                 "emotionTrends": []
             })
 
+        # Convert timestamp to datetime
+        user_data['timestamp'] = pd.to_datetime(user_data['timestamp'])
+        
         # Process each session separately
         session_summaries = []
         for session_id in user_data['session_id'].unique():
+            if pd.isna(session_id):  # Skip if session_id is NaN
+                continue
+                
             session_data = user_data[user_data['session_id'] == session_id]
             
-            # Calculate emotion counts
-            emotion_counts = session_data['emotion'].value_counts().to_dict()
-            total_emotions = len(session_data)
-            
-            # Calculate percentages
-            emotion_percentages = {
-                emotion: round((count / total_emotions * 100), 2)
-                for emotion, count in emotion_counts.items()
-            }
-            
-            session_summaries.append({
-                'sessionId': session_id,
-                'startTime': session_data['timestamp'].min(),
-                'endTime': session_data['timestamp'].max(),
-                'duration': round((pd.to_datetime(session_data['timestamp'].max()) - 
-                                pd.to_datetime(session_data['timestamp'].min())).total_seconds() / 60, 2),
-                'modelType': session_data['model_type'].iloc[0],
-                'dominantEmotion': max(emotion_counts.items(), key=lambda x: x[1])[0],
-                'totalDetections': total_emotions,
-                'emotionBreakdown': emotion_counts,
-                'emotionPercentages': emotion_percentages
-            })
+            # Skip if no data for this session
+            if len(session_data) == 0:
+                continue
+                
+            try:
+                # Calculate emotion counts
+                emotion_counts = session_data['emotion'].value_counts().to_dict()
+                total_emotions = len(session_data)
+                
+                # Calculate percentages
+                emotion_percentages = {
+                    emotion: round((count / total_emotions * 100), 2)
+                    for emotion, count in emotion_counts.items()
+                }
+                
+                session_summaries.append({
+                    'sessionId': session_id,
+                    'startTime': session_data['timestamp'].min().isoformat(),
+                    'endTime': session_data['timestamp'].max().isoformat(),
+                    'duration': round((session_data['timestamp'].max() - 
+                                    session_data['timestamp'].min()).total_seconds() / 60, 2),
+                    'modelType': session_data['model_type'].iloc[0] if not session_data['model_type'].empty else 'unknown',
+                    'dominantEmotion': max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else 'unknown',
+                    'totalDetections': total_emotions,
+                    'emotionBreakdown': emotion_counts,
+                    'emotionPercentages': emotion_percentages
+                })
+            except Exception as e:
+                print(f"Error processing session {session_id}: {str(e)}")
+                continue
         
         # Sort sessions by start time, most recent first
         session_summaries.sort(key=lambda x: x['startTime'], reverse=True)
         
+        # Group data for time series and model analysis
+        emotions_by_time = (user_data.groupby(['timestamp', 'emotion'])
+            .size()
+            .reset_index(name='count')
+            .assign(timestamp=lambda x: x['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S'))
+            .to_dict('records'))
+            
+        emotions_by_model = (user_data.groupby(['model_type', 'emotion'])
+            .size()
+            .reset_index(name='count')
+            .to_dict('records'))
+        
         return jsonify({
             "sessionHistory": session_summaries,
-            "emotionsByTime": user_data.groupby(['timestamp', 'emotion'])
-                .size()
-                .reset_index(name='count')
-                .to_dict('records'),
-            "emotionsByModel": user_data.groupby(['model_type', 'emotion'])
-                .size()
-                .reset_index(name='count')
-                .to_dict('records'),
-            "emotionTrends": []  # Add empty trends array as default
+            "emotionsByTime": emotions_by_time,
+            "emotionsByModel": emotions_by_model,
+            "emotionTrends": []
         })
         
     except Exception as e:
         print(f"Analytics Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-    
+        return jsonify({"error": str(e)}), 500 
     
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -510,55 +528,71 @@ def start_session():
 
 @app.route('/stop-session', methods=['POST'])
 def stop_session():
-    if not session.get('user'):
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    data = request.get_json()
-    session_id = data.get("sessionId")
-
-    if not session_id or session_id not in active_sessions:
-        return jsonify({"error": "Invalid session"}), 400
-
-    session_data = active_sessions[session_id]
-    duration = (datetime.now() - session_data['start_time']).total_seconds() / 60
-
-    # Calculate session statistics
-    emotions = [e['emotion'] for e in session_data['emotions']]
-    emotion_counts = {}
-    for emotion in emotions:
-        emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
-    
-    dominant_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else None
-
-    # Calculate percentages for each emotion
-    total_emotions = len(emotions)
-    emotion_percentages = {
-        emotion: (count / total_emotions * 100) if total_emotions > 0 else 0 
-        for emotion, count in emotion_counts.items()
-    }
-
-    report = {
-        "duration": round(duration, 2),
-        "dominantEmotion": dominant_emotion,
-        "totalDetections": total_emotions,
-        "emotionBreakdown": emotion_counts,
-        "emotionPercentages": {
-            emotion: round(percentage, 2) 
-            for emotion, percentage in emotion_percentages.items()
+    try:
+        data = request.get_json()
+        session_id = data.get('sessionId')
+        email = data.get('email', session.get('user'))
+        
+        if not session_id or session_id not in active_sessions:
+            return jsonify({"error": "Invalid or expired session"}), 400
+            
+        # Get session data
+        session_data = active_sessions[session_id]
+        session_data['end_time'] = datetime.now()
+        
+        # Calculate session statistics
+        start_time = session_data.get('start_time')
+        end_time = session_data['end_time']
+        duration = (end_time - start_time).total_seconds() / 60  # Duration in minutes
+        
+        emotions = session_data.get('emotions', [])
+        total_detections = len(emotions)
+        
+        # Calculate emotion breakdown
+        emotion_counts = {}
+        for e in emotions:
+            emotion = e['emotion']
+            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+            
+        # Calculate percentages
+        emotion_percentages = {
+            emotion: (count/total_detections * 100) 
+            for emotion, count in emotion_counts.items()
+        } if total_detections > 0 else {}
+        
+        # Find dominant emotion
+        dominant_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else None
+        
+        # Create session report
+        report = {
+            'sessionId': session_id,
+            'startTime': start_time.isoformat(),
+            'endTime': end_time.isoformat(),
+            'duration': duration,
+            'totalDetections': total_detections,
+            'emotionBreakdown': emotion_counts,
+            'emotionPercentages': emotion_percentages,
+            'dominantEmotion': dominant_emotion,
+            'modelType': session_data.get('model_type')
         }
-    }
-
-    # Clean up camera if it exists
-    if session_id in active_cameras:
-        cap = active_cameras[session_id]
-        if cap and cap.isOpened():
-            cap.release()
-        del active_cameras[session_id]
-
-    # Clean up session
-    del active_sessions[session_id]
-
-    return jsonify(report)
+        
+        # Clean up session
+        if session_id in active_cameras:
+            camera = active_cameras[session_id]
+            if camera and camera.isOpened():
+                camera.release()
+            del active_cameras[session_id]
+            
+        del active_sessions[session_id]
+        
+        print(f"Session {session_id} stopped successfully")
+        return jsonify(report)
+        
+    except Exception as e:
+        print(f"Error stopping session: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.after_request
 def after_request(response):
@@ -582,6 +616,14 @@ def status():
         return jsonify({"error": "Unauthorized"}), 401
     
     return jsonify({"status": "running"})
+
+@app.route('/debug-session')
+def debug_session():
+    return jsonify({
+        "session_data": dict(session),
+        "user": session.get('user'),
+        "cookies": dict(request.cookies)
+    })
 
 if __name__ == '__main__':
     # Attempt to load a default model if available

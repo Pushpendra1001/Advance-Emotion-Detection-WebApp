@@ -96,12 +96,17 @@ async function fetchAvailableModels() {
 const SessionReport = ({ report }) => {
   if (!report) return null;
 
-  // Calculate max confidence for color coding
   const maxConfidence = Math.max(...Object.values(report.emotionPercentages || {}));
 
   return (
-    <Box>
-      <List>
+    <Box sx={{ 
+      mt: 2,
+      p: 2, 
+      bgcolor: 'background.paper',
+      borderRadius: 1,
+      boxShadow: 1
+    }}>
+      <List dense>
         <ListItem>
           <ListItemText 
             primary={
@@ -192,9 +197,9 @@ const SessionReport = ({ report }) => {
         </ListItem>
       </List>
       
-      {/* Add real-time chart */}
+      {/* Pie Chart */}
       {report.emotionBreakdown && Object.keys(report.emotionBreakdown).length > 0 && (
-        <Box sx={{ mt: 3, height: 300 }}>
+        <Box sx={{ mt: 2, height: 200 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -232,6 +237,8 @@ export default function EmotionDetection() {
   const [isTracking, setIsTracking] = useState(false)
   const [sessionId, setSessionId] = useState(null)
   const [sessionReport, setSessionReport] = useState(null)
+  // Add this to your existing state variables
+  const [previousSessions, setPreviousSessions] = useState([]);
 
   useEffect(() => {
     const connectToBackend = async () => {
@@ -276,6 +283,29 @@ export default function EmotionDetection() {
 
     connectToBackend();
   }, [modelId]);
+
+  // Add this function to fetch previous sessions
+  const fetchPreviousSessions = async () => {
+    try {
+      const response = await fetch(`${PYTHON_API_URL}/analytics`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch session history');
+      }
+      
+      const data = await response.json();
+      setPreviousSessions(data.sessionHistory || []);
+    } catch (err) {
+      console.error('Error fetching session history:', err);
+    }
+  };
+
+  // Add this to your useEffect
+  useEffect(() => {
+    fetchPreviousSessions();
+  }, []);
 
   const startSession = async () => {
     try {
@@ -343,23 +373,31 @@ export default function EmotionDetection() {
 
   const stopTracking = useCallback(async () => {
     try {
-      if (!sessionId) return;
+      if (!sessionId) {
+        console.error('No active session to stop');
+        return;
+      }
       
-      // Stop the video feed
+      // First stop the video feed
       const videoElement = document.getElementById('video-feed');
       if (videoElement) {
-        videoElement.srcObject = null;
-        videoElement.src = '';
+        videoElement.src = '';  // Clear the source
         videoElement.style.display = 'none';
       }
       
+      console.log('Stopping session:', sessionId);
+      
+      // Send stop request to server
       const response = await fetch(`${PYTHON_API_URL}/stop-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ sessionId })
+        body: JSON.stringify({ 
+          sessionId,
+          email: sessionStorage.getItem('userEmail') // Add user email for tracking
+        })
       });
       
       if (!response.ok) {
@@ -367,15 +405,23 @@ export default function EmotionDetection() {
         throw new Error(errorData.error || 'Failed to stop session');
       }
       
+      // Get session report
       const data = await response.json();
+      console.log('Session stopped, received report:', data);
+      
+      // Update state with report data
       setSessionReport(data);
       setIsTracking(false);
       setSessionId(null);
+      
+      // Fetch updated session history
+      await fetchPreviousSessions();
+      
     } catch (err) {
       console.error('Error stopping tracking:', err);
-      setError(err.message);
+      setError(`Failed to stop session: ${err.message}`);
     }
-  }, [sessionId]);
+  }, [sessionId, fetchPreviousSessions]);
 
   // Cleanup effect
   useEffect(() => {
@@ -528,19 +574,59 @@ export default function EmotionDetection() {
         </Grid>
 
         <Grid item xs={12} md={4}>
-          <Paper elevation={3} sx={{ p: 3 }}>
+          <Paper elevation={3} sx={{ p: 3, maxHeight: '80vh', overflow: 'auto' }}>
             <Typography variant="h6" gutterBottom>
-              Session Report
+              Session Reports
             </Typography>
-            {isTracking ? (
+            
+            {/* Current Session */}
+            {isTracking && (
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="h6" color="primary">Current Session</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Session in progress...
+                </Typography>
+              </Box>
+            )}
+
+            {/* Latest Session Report */}
+            {sessionReport && (
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="subtitle1" color="primary">Latest Session</Typography>
+                <SessionReport report={sessionReport} />
+              </Box>
+            )}
+
+            {/* Previous Sessions */}
+            {previousSessions.length > 0 && (
+              <Box>
+                <Typography variant="subtitle1" color="primary" sx={{ mt: 3, mb: 2 }}>
+                  Previous Sessions
+                </Typography>
+                {previousSessions.map((session, index) => (
+                  <Box key={session.sessionId} sx={{ mb: 4 }}>
+                    <Typography variant="subtitle2">
+                      Session {previousSessions.length - index}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {new Date(session.startTime).toLocaleString()}
+                    </Typography>
+                    <SessionReport report={{
+                      duration: session.duration,
+                      totalDetections: session.totalDetections,
+                      dominantEmotion: session.dominantEmotion,
+                      emotionPercentages: session.emotionPercentages,
+                      emotionBreakdown: session.emotionBreakdown
+                    }} />
+                    <Divider sx={{ mt: 2 }} />
+                  </Box>
+                ))}
+              </Box>
+            )}
+
+            {!isTracking && !sessionReport && previousSessions.length === 0 && (
               <Typography variant="body2" color="text.secondary">
-                Session in progress...
-              </Typography>
-            ) : sessionReport ? (
-              <SessionReport report={sessionReport} />
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No session report available. Start tracking to generate a report.
+                No session reports available. Start tracking to generate reports.
               </Typography>
             )}
           </Paper>

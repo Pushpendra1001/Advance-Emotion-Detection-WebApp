@@ -14,13 +14,13 @@ import json
 
 app = Flask(__name__)
 app.config.update(
-    SESSION_COOKIE_SECURE=False,  # Set to False for development
-    SESSION_COOKIE_SAMESITE='Lax',  # Change to 'Lax' for development
+    SESSION_COOKIE_SECURE=False,  
+    SESSION_COOKIE_SAMESITE='Lax',  
     SESSION_COOKIE_HTTPONLY=True,
     SECRET_KEY='your-secret-key-here'
 )
 
-# Simple CORS configuration that should work for development
+
 CORS(app, 
      origins=["http://localhost:5173", "http://127.0.0.1:5173"],
      supports_credentials=True,
@@ -31,11 +31,11 @@ CORS(app,
 USERS_CSV = 'data/users.csv'
 EMOTIONS_CSV = 'data/emotions.csv'
 
-# Ensure directories exist
+
 os.makedirs('data', exist_ok=True)
 os.makedirs('models', exist_ok=True)
 
-# Initialize CSV files if they don't exist
+
 if not os.path.exists(USERS_CSV):
     pd.DataFrame(columns=['email', 'password']).to_csv(USERS_CSV, index=False)
 if not os.path.exists(EMOTIONS_CSV):
@@ -48,10 +48,10 @@ emotion_labels = ['anger', 'Happy', 'disgust', 'fear', 'happy', 'neutral', 'sad'
 active_sessions = {}
 active_cameras = {}
 
-# Update model path constant 
-MODEL_PATH = os.path.join('src', 'models', 'my_model.keras')  # Changed from emotion-model.keras
 
-# Update load_model_file function
+MODEL_PATH = os.path.join('src', 'models', 'my_model.keras')  
+
+
 def load_model_file(model_path):
     global model
     try:
@@ -65,12 +65,12 @@ def load_model_file(model_path):
 def validate_model_path(model_path):
     """Validate and fix model path if necessary"""
     potential_paths = [
-        model_path,  # As provided
-        os.path.join(os.getcwd(), model_path),  # Relative to current working directory
-        os.path.join(os.getcwd(), 'models', model_path),  # In models subdirectory
-        os.path.join(os.getcwd(), 'frontend', model_path),  # In frontend subdirectory
-        os.path.join(os.getcwd(), 'frontend', '/models/my_model.keras'),  # Fixed path in frontend
-        os.path.join(os.getcwd(), 'backend', 'models', '/models/my_model.keras')  # Path in backend/models
+        model_path,  
+        os.path.join(os.getcwd(), model_path),  
+        os.path.join(os.getcwd(), 'models', model_path),  
+        os.path.join(os.getcwd(), 'frontend', model_path),  
+        os.path.join(os.getcwd(), 'frontend', '/models/my_model.keras'),  
+        os.path.join(os.getcwd(), 'backend', 'models', '/models/my_model.keras')  
     ]
     
     for path in potential_paths:
@@ -78,7 +78,7 @@ def validate_model_path(model_path):
             print(f"Found model at: {path}")
             return path
     
-    # If all else fails, see if we can find any .keras files
+    
     for root, dirs, files in os.walk(os.getcwd()):
         for file in files:
             if file.endswith('.keras'):
@@ -90,6 +90,13 @@ def validate_model_path(model_path):
     
 def save_emotion(email, emotion, confidence, model_type, session_id=None):
     try:
+        
+        if not email or email == 'test@example.com':
+            email = session.get('user')
+            if not email:
+                print("Warning: No valid user email for emotion saving")
+                return
+                
         timestamp = datetime.now()
         new_data = {
             'email': email,
@@ -100,18 +107,18 @@ def save_emotion(email, emotion, confidence, model_type, session_id=None):
             'session_id': session_id
         }
         
-        # Save to CSV immediately
+        
         try:
-            # Create directory if it doesn't exist
+            
             os.makedirs(os.path.dirname(EMOTIONS_CSV), exist_ok=True)
             
-            # Read existing data or create new DataFrame
+            
             if os.path.exists(EMOTIONS_CSV):
                 df = pd.read_csv(EMOTIONS_CSV)
             else:
                 df = pd.DataFrame(columns=['email', 'timestamp', 'emotion', 'confidence', 'model_type', 'session_id'])
             
-            # Append new data
+            
             df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
             df.to_csv(EMOTIONS_CSV, index=False)
             print(f"Emotion saved to CSV: {emotion} ({confidence*100:.1f}%)")
@@ -120,7 +127,7 @@ def save_emotion(email, emotion, confidence, model_type, session_id=None):
             print(f"Error saving to CSV: {str(e)}")
             traceback.print_exc()
             
-        # Update active session stats
+        
         if session_id and session_id in active_sessions:
             if 'emotions' not in active_sessions[session_id]:
                 active_sessions[session_id]['emotions'] = []
@@ -138,41 +145,41 @@ def process_frame(frame, email, model_type, session_id):
             print("No model loaded. Please load a model first.")
             return frame
         
-        # Convert to grayscale for face detection
+        
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, 1.1, 5)
         
-        # Draw each detected face and emotion
+        
         for (x, y, w, h) in faces:
-            # Extract face ROI from grayscale image
+            
             face_roi = gray[y:y+h, x:x+w]
             
-            # Preprocess for model
-            face_roi = cv2.resize(face_roi, (48, 48))  # Changed to 48x48
-            face_roi = face_roi.astype('float32') / 255.0  # Normalize to [0,1]
             
-            # Reshape to match model's expected input shape (None, 48, 48, 1)
-            face_roi = np.expand_dims(face_roi, axis=-1)  # Add channel dimension
-            face_roi = np.expand_dims(face_roi, axis=0)   # Add batch dimension
+            face_roi = cv2.resize(face_roi, (48, 48))  
+            face_roi = face_roi.astype('float32') / 255.0  
             
-            # Make prediction
+            
+            face_roi = np.expand_dims(face_roi, axis=-1)  
+            face_roi = np.expand_dims(face_roi, axis=0)   
+            
+            
             prediction = model.predict(face_roi, verbose=0)
             emotion_idx = np.argmax(prediction[0])
             emotion = emotion_labels[emotion_idx]
             confidence = float(prediction[0][emotion_idx])
             
-            # Draw rectangle and emotion text
+            
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             text = f"{emotion}: {confidence*100:.1f}%"
             
-            # Improve text visibility with background
+            
             text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
             cv2.rectangle(frame, (x, y-30), (x + text_size[0], y), (0, 255, 0), -1)
             cv2.putText(frame, text, (x, y-10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, 
-                       (0, 0, 0), 2)  # Black text on green background
+                       (0, 0, 0), 2)  
             
-            # Save emotion data
+            
             if session_id and session_id in active_sessions:
                 save_emotion(email, emotion, confidence, model_type, session_id)
             
@@ -191,10 +198,10 @@ def check_models():
     if not session.get('user'):
         return jsonify({"error": "Unauthorized"}), 401
     
-    # Look for models in multiple directories
+    
     model_files = []
     
-    # Check in current directory and subdirectories
+    
     for root, dirs, files in os.walk(os.getcwd()):
         for file in files:
             if file.endswith('.keras') or file.endswith('.h5'):
@@ -220,10 +227,10 @@ def generate_frames(email, model_type, session_id):
             break
         
         try:
-            # Process frame with emotion detection
+            
             processed_frame = process_frame(frame, email, model_type, session_id)
             
-            # Convert frame to JPEG
+            
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             frame_bytes = buffer.tobytes()
             
@@ -279,19 +286,34 @@ def login():
         if user.empty or not check_password_hash(user.iloc[0]['password'], password):
             return jsonify({"error": "Invalid credentials"}), 401
             
+        
         session['user'] = email
-        return jsonify({"status": "success", "email": email})
+        session.permanent = True  
+        
+        print(f"User logged in successfully: {email}")
+        
+        return jsonify({
+            "status": "success", 
+            "email": email,
+            "message": "Login successful"
+        })
         
     except Exception as e:
+        print(f"Login error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/analytics', methods=['GET'])
 def get_analytics():
     try:
-        email = session.get('user', 'test@example.com')
-        print(f"Fetching analytics for user: {email}")
+        
+        email = session.get('user')
+        if not email:
+            return jsonify({"error": "User not authenticated"}), 401
+            
+        print(f"Fetching analytics for authenticated user: {email}")
         
         if not os.path.exists(EMOTIONS_CSV):
+            print(f"No emotions CSV file found for user: {email}")
             return jsonify({
                 "sessionHistory": [],
                 "emotionsByTime": [],
@@ -299,12 +321,14 @@ def get_analytics():
                 "emotionTrends": []
             })
         
-        # Read CSV and process data
+        
         df = pd.read_csv(EMOTIONS_CSV)
         user_data = df[df['email'] == email].copy()
-        user_data['timestamp'] = pd.to_datetime(user_data['timestamp'])
+        
+        print(f"Found {len(user_data)} records for user: {email}")
         
         if user_data.empty:
+            print(f"No emotion data found for user: {email}")
             return jsonify({
                 "sessionHistory": [],
                 "emotionsByTime": [],
@@ -312,7 +336,12 @@ def get_analytics():
                 "emotionTrends": []
             })
 
-        # Process sessions
+        
+        user_data['timestamp'] = pd.to_datetime(user_data['timestamp'])
+        
+        
+
+        
         session_summaries = []
         for session_id in user_data['session_id'].unique():
             if pd.isna(session_id):
@@ -345,22 +374,22 @@ def get_analytics():
                 print(f"Error processing session {session_id}: {str(e)}")
                 continue
 
-        # Sort by time
+        
         session_summaries.sort(key=lambda x: x['startTime'], reverse=True)
         
-        # Group data by time and emotion
+        
         emotions_by_time = (user_data.groupby([user_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M'), 'emotion'])
             .size()
             .reset_index(name='count')
             .to_dict('records'))
             
-        # Group by model type
+        
         emotions_by_model = (user_data.groupby(['model_type', 'emotion'])
             .size()
             .reset_index(name='count')
             .to_dict('records'))
             
-        # Calculate emotion trends by hour
+        
         emotion_trends = (user_data.groupby([user_data['timestamp'].dt.hour, 'emotion'])
             .size()
             .reset_index(name='count')
@@ -398,7 +427,7 @@ def check_auth():
 def index():
     return jsonify({"status": "running"})
 
-# Update the model_status endpoint
+
 @app.route('/model-status', methods=['GET'])
 def model_status():
     try:
@@ -431,7 +460,7 @@ def load_model_endpoint():
         if not model_path:
             return jsonify({"error": "Model path not provided"}), 400
         
-        # Validate and fix model path
+        
         valid_path = validate_model_path(model_path)
         if not valid_path:
             return jsonify({"error": f"Model file not found at {model_path} or any expected location"}), 404
@@ -490,29 +519,29 @@ def video_feed():
         print(f"Error in video_feed: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# Add this helper function to create a preview frame with text
+
 def create_preview_frame(text):
-    # Create a black image
+    
     frame = np.zeros((480, 640, 3), np.uint8)
     
-    # Add text to the image
+    
     cv2.putText(frame, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     
     return frame
 
 @app.route('/start-session', methods=['POST'])
 def start_session():
-    # For local testing, comment this out
-    # if not session.get('user'):
-    #     return jsonify({"error": "Unauthorized"}), 401
     
-    # Check if model is loaded
+    
+    
+    
+    
     if model is None:
         return jsonify({"error": "No model loaded. Please load a model first."}), 400
     
     session_id = str(uuid.uuid4())
     active_sessions[session_id] = {
-        "user": session.get("user", "test@example.com"),  # Provide a default email for testing
+        "user": session.get("user", "test@example.com"),  
         "start_time": datetime.now(),
         "emotions": []
     }
@@ -529,34 +558,34 @@ def stop_session():
         if not session_id or session_id not in active_sessions:
             return jsonify({"error": "Invalid or expired session"}), 400
             
-        # Get session data
+        
         session_data = active_sessions[session_id]
         session_data['end_time'] = datetime.now()
         
-        # Calculate session statistics
+        
         start_time = session_data.get('start_time')
         end_time = session_data['end_time']
-        duration = (end_time - start_time).total_seconds() / 60  # Duration in minutes
+        duration = (end_time - start_time).total_seconds() / 60  
         
         emotions = session_data.get('emotions', [])
         total_detections = len(emotions)
         
-        # Calculate emotion breakdown
+        
         emotion_counts = {}
         for e in emotions:
             emotion = e['emotion']
             emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
             
-        # Calculate percentages
+        
         emotion_percentages = {
             emotion: (count/total_detections * 100) 
             for emotion, count in emotion_counts.items()
         } if total_detections > 0 else {}
         
-        # Find dominant emotion
+        
         dominant_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else None
         
-        # Create session report
+        
         report = {
             'sessionId': session_id,
             'startTime': start_time.isoformat(),
@@ -569,7 +598,7 @@ def stop_session():
             'modelType': session_data.get('model_type')
         }
         
-        # Clean up session
+        
         if session_id in active_cameras:
             camera = active_cameras[session_id]
             if camera and camera.isOpened():
@@ -589,14 +618,14 @@ def stop_session():
 
 @app.after_request
 def after_request(response):
-    # Handle preflight OPTIONS requests
+    
     if request.method == "OPTIONS":
         response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         response.headers.add('Access-Control-Max-Age', '3600')
-    # For regular requests
+    
     else:
         response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
@@ -619,7 +648,7 @@ def debug_session():
     })
 
 if __name__ == '__main__':
-    # Attempt to load a default model if available
+    
     default_model_paths = [
         os.path.join(os.getcwd(), 'frontend', 'my_model.keras'),
         os.path.join(os.getcwd(), 'my_model.keras'),

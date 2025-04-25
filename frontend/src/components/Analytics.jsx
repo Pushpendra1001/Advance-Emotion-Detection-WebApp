@@ -57,28 +57,29 @@ const Analytics = () => {
     emotionsByTime: [],
     emotionsByModel: [],
     sessionHistory: [],
-    emotionTrends: [] // Add this default value
+    emotionTrends: [] 
   });
   const [timeRange, setTimeRange] = useState('day');
   const [selectedEmotion, setSelectedEmotion] = useState('all');
   const [selectedSession, setSelectedSession] = useState(null);
 
-  // Add polling interval
+  
   useEffect(() => {
-    // Initial fetch
+    
     fetchAnalytics();
 
-    // Set up polling every 5 seconds
+    
     const intervalId = setInterval(() => {
       fetchAnalytics();
-    }, 5000); // Update every 5 seconds
+    }, 5000); 
 
-    // Cleanup on unmount
+    
     return () => clearInterval(intervalId);
   }, [timeRange]);
 
   const fetchAnalytics = async () => {
     try {
+      setLoading(true);
       const response = await fetch(`${PYTHON_API_URL}/analytics`, {
         method: 'GET',
         credentials: 'include',
@@ -89,11 +90,15 @@ const Analytics = () => {
       });
       
       if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = '/auth'; 
+          return;
+        }
         throw new Error(await response.text() || 'Failed to fetch analytics data');
       }
       
       const rawData = await response.json();
-      console.log('Raw analytics data:', rawData); // Add this for debugging
+      console.log('Raw analytics data:', rawData);
       
       const processedData = processAnalyticsData(rawData);
       setData(processedData);
@@ -101,7 +106,7 @@ const Analytics = () => {
       console.error('Analytics error:', err);
       setError(err.message);
     } finally {
-      setLoading(false); // Add this to ensure loading state is updated
+      setLoading(false);
     }
   };
 
@@ -115,14 +120,14 @@ const Analytics = () => {
       };
     }
 
-    // Calculate emotion percentages
+    
     const totalEmotions = rawData.emotionsByModel.reduce((acc, curr) => acc + curr.count, 0) || 0;
     const emotionsWithPercentage = rawData.emotionsByModel.map(item => ({
       ...item,
       percentage: totalEmotions > 0 ? ((item.count / totalEmotions) * 100).toFixed(2) : 0
     }));
 
-    // Calculate emotion trends
+    
     const emotionTrends = calculateEmotionTrends(rawData.emotionsByTime || []);
 
     return {

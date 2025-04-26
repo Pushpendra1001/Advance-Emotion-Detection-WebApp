@@ -27,6 +27,8 @@ export default function EmotionDetection() {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [emotionData, setEmotionData] = useState([]);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [sessionId, setSessionId] = useState(null); // Add sessionId state
 
   // Add stopCamera function
   const stopCamera = () => {
@@ -77,37 +79,36 @@ export default function EmotionDetection() {
       }
 
       const { sessionId } = await sessionResponse.json();
+      setSessionId(sessionId); // Store the sessionId in state
 
       // Create video feed URL
-      const videoUrl = new URL(`${PYTHON_API_URL}/video_feed`);
-      videoUrl.searchParams.append('session_id', sessionId);
-      videoUrl.searchParams.append('t', Date.now());
+      const url = new URL(`${PYTHON_API_URL}/video_feed`);
+      url.searchParams.append('session_id', sessionId);
+      url.searchParams.append('t', Date.now());
+      url.searchParams.append('patientName', patientName); // Add patient name to URL
 
-      // Set up video feed
-      const videoFeed = document.getElementById('video-feed');
-      if (videoFeed) {
-        videoFeed.style.display = 'block';
-        videoFeed.src = videoUrl.toString();
-      }
+      setVideoUrl(url.toString());
+      console.log("Video feed URL:", url.toString());
 
       setIsTracking(true);
 
     } catch (err) {
+      console.error("Error starting tracking:", err);
       setError('Failed to start tracking: ' + err.message);
       setIsTracking(false);
-      const videoFeed = document.getElementById('video-feed');
-      if (videoFeed) {
-        videoFeed.src = '';
-      }
+      setVideoUrl('');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Update the stopTracking function to handle errors better
+
   const stopTracking = async () => {
     try {
       setIsLoading(true);
       setIsTracking(false);
+      setVideoUrl('');
 
       const response = await fetch(`${PYTHON_API_URL}/stop-session`, {
         method: 'POST',
@@ -118,29 +119,37 @@ export default function EmotionDetection() {
         body: JSON.stringify({
           patientName,
           modelType,
+          sessionId,
           startTime: startTime?.toISOString(),
           endTime: new Date().toISOString()
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to stop tracking');
-      }
-
       const data = await response.json();
-      setSessionReport(data);
-
-      // Clear video feed
-      const videoFeed = document.getElementById('video-feed');
-      if (videoFeed) {
-        videoFeed.src = '';
-        videoFeed.style.display = 'none';
+      
+      if (response.ok) {
+        setSessionReport(data);
+        setSessionId(null);
+      } else {
+        // Handle server-side error but don't show error to user if tracking was already stopped
+        console.error("Server reported an error: ", data.error);
+        setSessionReport({
+          dominantEmotion: 'Unknown',
+          duration: ((new Date() - startTime) / 1000 / 60).toFixed(2)
+        });
       }
-
     } catch (err) {
-      setError('Failed to stop tracking: ' + err.message);
+      console.error("Error stopping tracking:", err);
+      // Don't show error if it's just a server-side issue with calculating stats
+      // Just create a basic report
+      setSessionReport({
+        dominantEmotion: 'Unknown',
+        duration: ((new Date() - startTime) / 1000 / 60).toFixed(2)
+      });
     } finally {
       setIsLoading(false);
+      setIsTracking(false); // Ensure tracking is marked as stopped
+      setVideoUrl(''); // Ensure video feed is cleared
     }
   };
 
@@ -161,6 +170,39 @@ export default function EmotionDetection() {
       setError('Failed to download session data: ' + err.message);
     }
   };
+
+  // Fix the fetchEmotionData function
+  const fetchEmotionData = async (sid) => {
+    if (!sid) return; // Don't fetch if no session ID
+    
+    try {
+      const response = await fetch(`${PYTHON_API_URL}/emotion-data?session_id=${sid}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.emotions) {
+          setEmotionData(data.emotions);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching emotion data:', err);
+    }
+  };
+
+  // Fix the polling effect
+  useEffect(() => {
+    let intervalId;
+    
+    if (isTracking && sessionId) {
+      // Poll for emotion updates every 2 seconds
+      intervalId = setInterval(() => {
+        fetchEmotionData(sessionId);
+      }, 2000);
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isTracking, sessionId]); // Now sessionId is properly defined
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -184,43 +226,45 @@ export default function EmotionDetection() {
             <Typography variant="h6" gutterBottom>
               Camera Feed - {patientName}
             </Typography>
-            <Box sx={{ position: 'relative' }}>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{ 
-                  width: '100%', 
-                  borderRadius: '8px',
-                  display: !isTracking ? 'block' : 'none' 
-                }}
-              />
-              <img
-                id="video-feed"
-                alt="Emotion Detection Feed"
-                style={{ 
-                  width: '100%',
-                  height: '100%',
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  display: isTracking ? 'block' : 'none',
-                  objectFit: 'contain'
-                }}
-              />
-              <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color={isTracking ? "error" : "primary"}
-                  onClick={isTracking ? stopTracking : startTracking}
-                  fullWidth
-                  disabled={isLoading}
-                >
-                  {isLoading ? <CircularProgress size={24} /> : 
-                    isTracking ? "Stop Tracking" : "Start Tracking"}
-                </Button>
-              </Box>
+            <Box sx={{ 
+              position: 'relative', 
+              minHeight: '400px',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: '#f0f0f0',
+              borderRadius: '8px',
+              overflow: 'hidden'
+            }}>
+              {!isTracking && !videoUrl && (
+                <Typography variant="body2" color="text.secondary">
+                  Click "Start Tracking" to begin emotion detection
+                </Typography>
+              )}
+              
+              {isTracking && videoUrl && (
+                <img
+                  src={videoUrl}
+                  alt="Emotion Detection Feed"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain'
+                  }}
+                />
+              )}
+            </Box>
+            <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
+              <Button
+                variant="contained"
+                color={isTracking ? "error" : "primary"}
+                onClick={isTracking ? stopTracking : startTracking}
+                fullWidth
+                disabled={isLoading}
+              >
+                {isLoading ? <CircularProgress size={24} /> : 
+                  isTracking ? "Stop Tracking" : "Start Tracking"}
+              </Button>
             </Box>
           </Paper>
         </Grid>
@@ -235,7 +279,7 @@ export default function EmotionDetection() {
                 <ListItem>
                   <ListItemText
                     primary="Session Duration"
-                    secondary={`${((new Date() - startTime) / 1000 / 60).toFixed(2)} minutes`}
+                    secondary={`${((new Date() - (startTime || new Date())) / 1000 / 60).toFixed(2)} minutes`}
                   />
                 </ListItem>
                 <ListItem>

@@ -10,6 +10,7 @@ import Auth from './components/Auth'
 import ModelSelection from './components/ModelSelection'
 import EmotionDetection from './components/EmotionDetection'
 import Analytics from './components/Analytics'
+import ImageAnalysis from './components/ImageAnalyzer'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -114,6 +115,11 @@ function MainApp() {
                 <EmotionDetection />
               </ProtectedRoute>
             } />
+              <Route path="/image-analysis" element={
+              <ProtectedRoute>
+                <ImageAnalysis />
+              </ProtectedRoute>
+              } />
             <Route path="/analytics" element={
               <ProtectedRoute>
                 <Analytics />

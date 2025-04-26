@@ -43,6 +43,13 @@ const modelsByRole = {
       description: 'Analyze emotions in various contexts and scenarios',
       image: 'https://images.unsplash.com/photo-1516387938699-a93567ec168e?auto=format&fit=crop&w=500',
       dialogLabel: 'Your Name'
+    },
+    {
+      id: 'image-analysis',
+      title: 'Image Emotion Analysis',
+      description: 'Upload and analyze emotions in images',
+      image: 'https://images.unsplash.com/photo-1512790182412-b19e6d62bc39?auto=format&fit=crop&w=500',
+      dialogLabel: 'Your Name'
     }
   ]
 };
@@ -62,6 +69,20 @@ const defaultModels = [
     description: 'Emotion detection for educational environments',
     image: 'https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=500',
     dialogLabel: 'Class Name'
+  },
+  {
+    id: 'general-analysis',
+    title: 'General Analysis',
+    description: 'Basic emotion detection for general use',
+    image: 'https://images.unsplash.com/photo-1516387938699-a93567ec168e?auto=format&fit=crop&w=500',
+    dialogLabel: 'Your Name'
+  },
+  {
+    id: 'image-analysis',
+    title: 'Image Analysis',
+    description: 'Upload and analyze emotions in images',
+    image: 'https://images.unsplash.com/photo-1512790182412-b19e6d62bc39?auto=format&fit=crop&w=500',
+    dialogLabel: 'Your Name'
   }
 ];
 
@@ -85,6 +106,15 @@ export default function ModelSelection() {
   const handleModelSelect = (model) => {
     setSelectedModel(model);
     setNameInput('');
+    
+    // Navigate directly to image analysis without dialog
+    if (model.id === 'image-analysis') {
+      navigate('/image-analysis', {
+        state: { userRole: userRole || 'general' }
+      });
+      return;
+    }
+    
     setOpenDialog(true);
   };
 
@@ -137,7 +167,7 @@ export default function ModelSelection() {
       
       <Grid container spacing={4} justifyContent="center">
         {models.map((model) => (
-          <Grid item xs={12} md={userRole ? 8 : 6} key={model.id}>
+          <Grid item xs={12} md={userRole ? 6 : 6} key={model.id}>
             <Card sx={{ 
               height: '100%',
               display: 'flex',

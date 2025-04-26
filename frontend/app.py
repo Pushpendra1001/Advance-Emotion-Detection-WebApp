@@ -36,6 +36,12 @@ emotion_labels = ['angry', 'happy', 'neutral']  # Only 3 emotions in your custom
 active_sessions = {}
 active_cameras = {}
 
+# Add this after where you create the data directory
+os.makedirs('static/uploads', exist_ok=True)
+os.makedirs('static/results', exist_ok=True)
+
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
+
 # Search for the model file in common locations
 def find_model_file():
     print("Searching for model file...")
@@ -657,31 +663,73 @@ def create_simple_emotion_model():
 
 def preprocess_face_for_emotion(face_image):
     """Apply additional preprocessing to help with emotion recognition"""
-    # Convert to RGB (ensure consistent color space)
-    if len(face_image.shape) == 2:  # If grayscale
-        face_image = cv2.cvtColor(face_image, cv2.COLOR_GRAY2RGB)
-    elif face_image.shape[2] == 3:  # If BGR (OpenCV default)
-        face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-    
-    # Resize to the target size (48x48) which is common for emotion models
-    resized = cv2.resize(face_image, (48, 48))
-    
-    # Apply contrast enhancement
-    lab = cv2.cvtColor(resized, cv2.COLOR_RGB2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    cl = clahe.apply(l)
-    enhanced_lab = cv2.merge((cl, a, b))
-    enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
-    
-    # Normalize pixel values
-    normalized = enhanced_rgb.astype("float32") / 255.0
-    
-    # Print shapes for debugging
-    print(f"Preprocessed image shape: {normalized.shape}")
-    
-    # Don't add channel dimension - ensure it remains (48, 48, 3)
-    return normalized
+    try:
+        # First check if model is loaded
+        if model is None:
+            print("Warning: Model not loaded in preprocess_face_for_emotion")
+            return None
+            
+        # Get the expected input shape from model
+        # Fix: Use model.input_shape instead of model.layers[0].input_shape
+        expected_shape = model.input_shape
+        expected_channels = expected_shape[-1] if expected_shape else 3
+        print(f"Model expects {expected_channels} channels")
+        
+        # Convert to grayscale if model expects 1 channel
+        if expected_channels == 1:
+            # If image is already grayscale, just ensure it's the right format
+            if len(face_image.shape) == 2:
+                gray_image = face_image
+            else:
+                # Convert from BGR/RGB to grayscale
+                gray_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+                
+            # Resize to the target size (48x48)
+            resized = cv2.resize(gray_image, (48, 48))
+            
+            # Apply contrast enhancement
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(resized)
+            
+            # Normalize pixel values
+            normalized = enhanced.astype("float32") / 255.0
+            
+            # Reshape to include channel dimension (48, 48) -> (48, 48, 1)
+            normalized = normalized.reshape(48, 48, 1)
+            
+            print(f"Preprocessed grayscale image shape: {normalized.shape}")
+            return normalized
+            
+        else:  # RGB processing (3 channels)
+            # Ensure consistent color space (convert to RGB if needed)
+            if len(face_image.shape) == 2:  # If grayscale
+                face_image = cv2.cvtColor(face_image, cv2.COLOR_GRAY2RGB)
+            elif face_image.shape[2] == 3:  # If BGR (OpenCV default)
+                face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+            
+            # Resize to the target size (48x48)
+            resized = cv2.resize(face_image, (48, 48))
+            
+            # Apply contrast enhancement
+            lab = cv2.cvtColor(resized, cv2.COLOR_RGB2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            cl = clahe.apply(l)
+            enhanced_lab = cv2.merge((cl, a, b))
+            enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+            
+            # Normalize pixel values
+            normalized = enhanced_rgb.astype("float32") / 255.0
+            
+            print(f"Preprocessed RGB image shape: {normalized.shape}")
+            return normalized
+            
+    except Exception as e:
+        print(f"Error in preprocess_face_for_emotion: {str(e)}")
+        traceback.print_exc()
+        # Return a default normalized grayscale image in case of error
+        default_img = np.zeros((48, 48, 1), dtype=np.float32)
+        return default_img
 
 def balance_emotion_predictions(preds, emotion_labels):
     """Apply bias correction to handle class imbalance"""
@@ -699,6 +747,210 @@ def balance_emotion_predictions(preds, emotion_labels):
             adjusted_preds[0][i] *= bias_correction[emotion.lower()]
     
     return adjusted_preds
+def detect_faces(image):
+    """
+    Detect faces in an image using OpenCV's face cascade
+    Returns a list of (x, y, w, h) tuples for detected faces
+    """
+    try:
+        # Convert image to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Use the face cascade to detect faces
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
+        
+        # Return the list of face coordinates
+        return faces
+    except Exception as e:
+        print(f"Error detecting faces: {str(e)}")
+        return []
+# Add this helper function somewhere in your code
+def get_model_input_shape(model):
+    """Safely get the model's input shape"""
+    try:
+        # First try direct attribute
+        if hasattr(model, 'input_shape'):
+            return model.input_shape
+        # Then try getting from inputs
+        elif hasattr(model, '_feed_input_shapes'):
+            return model._feed_input_shapes[0]
+        # Last resort - use a standard shape
+        else:
+            print("Warning: Could not determine model input shape, using default (48,48,1)")
+            return (None, 48, 48, 1)
+    except Exception as e:
+        print(f"Error getting model input shape: {e}")
+        return (None, 48, 48, 1)
+def detect_emotion(face_img):
+    """
+    Detect emotion in a preprocessed face image
+    Returns (emotion_name, confidence)
+    """
+    try:
+        # Check if model is loaded
+        if model is None:
+            print("Error: No model loaded for emotion detection")
+            return "unknown", 0.0
+            
+        if face_img is None:
+            print("Error: Face image is None")
+            return "unknown", 0.0
+            
+        # Check if the input has the right shape
+        if len(face_img.shape) != 3:
+            print(f"Error: Input shape {face_img.shape} is not 3D")
+            return "unknown", 0.0
+            
+        # Add batch dimension if needed
+        face_img_batch = np.expand_dims(face_img, axis=0)
+            
+        # Fix: Use model.input_shape instead of model.layers[0].input_shape
+        expected_shape = model.input_shape
+        actual_shape = face_img_batch.shape
+        
+        print(f"Model expects shape: {expected_shape}, got: {actual_shape}")
+        
+        # Make sure we match the expected channel count
+        if expected_shape[-1] != actual_shape[-1]:
+            print(f"Warning: Model expects {expected_shape[-1]} channels, but image has {actual_shape[-1]} channels")
+            
+            # Convert RGB to grayscale if needed
+            if expected_shape[-1] == 1 and actual_shape[-1] == 3:
+                print("Converting RGB image to grayscale")
+                # Extract first channel or compute average
+                face_img_batch = np.mean(face_img_batch, axis=3, keepdims=True)
+                print(f"Converted to shape: {face_img_batch.shape}")
+            
+            # Convert grayscale to RGB if needed
+            elif expected_shape[-1] == 3 and actual_shape[-1] == 1:
+                print("Converting grayscale image to RGB")
+                face_img_batch = np.repeat(face_img_batch, 3, axis=3)
+                print(f"Converted to shape: {face_img_batch.shape}")
+        
+        # Get predictions
+        preds = model.predict(face_img_batch, verbose=0)
+        
+        # Apply bias correction
+        preds = balance_emotion_predictions(preds, emotion_labels)
+        
+        # Get the index of the highest prediction
+        emotion_idx = np.argmax(preds[0])
+        
+        # Get the confidence value
+        confidence = float(preds[0][emotion_idx])
+        
+        # Get the emotion label
+        if emotion_idx < len(emotion_labels):
+            emotion = emotion_labels[emotion_idx]
+        else:
+            emotion = "unknown"
+        
+        return emotion, confidence
+        
+    except Exception as e:
+        print(f"Error detecting emotion: {str(e)}")
+        traceback.print_exc()
+        return "unknown", 0.0
+
+@app.route('/analyze-image', methods=['POST'])
+def analyze_image():
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+            
+        # Get user role from form data
+        user_role = request.form.get('userRole', 'general')
+        print(f"Processing image upload for user role: {user_role}")
+        
+        # Read and decode the image
+        img_stream = file.read()
+        nparr = np.frombuffer(img_stream, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({'error': 'Could not decode image'}), 400
+            
+        # Save original image to a temporary file
+        temp_filename = f"temp_{uuid.uuid4()}.jpg"
+        temp_path = os.path.join('static', 'uploads', temp_filename)
+        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+        cv2.imwrite(temp_path, img)
+        
+        # Detect faces
+        faces = detect_faces(img)
+        
+        # Process each face for emotion detection
+        results = []
+        result_image = img.copy()
+        
+        for (x, y, w, h) in faces:
+            # Extract face region from the original color image
+            face_roi = img[y:y+h, x:x+w]
+            
+            # Preprocess face for emotion detection
+            face_preprocessed = preprocess_face_for_emotion(face_roi)
+            
+            # Detect emotion
+            emotion, confidence = detect_emotion(face_preprocessed)
+            
+            # Add result
+            results.append({
+                'emotion': emotion,
+                'confidence': confidence,
+                'x': int(x),
+                'y': int(y),
+                'width': int(w),
+                'height': int(h)
+            })
+            
+            # Draw rectangle and label on result image
+            cv2.rectangle(result_image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+            label = f"{emotion}: {confidence:.2f}"
+            cv2.putText(result_image, label, (x, y-10), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+        # Save result image
+        result_filename = f"result_{uuid.uuid4()}.jpg"
+        result_path = os.path.join('static', 'results', result_filename)
+        os.makedirs(os.path.dirname(result_path), exist_ok=True)
+        cv2.imwrite(result_path, result_image)
+        
+        # Save results for anonymous or authenticated user
+        user_email = session.get('user', 'anonymous')
+        for result in results:
+            save_emotion(
+                email=user_email,
+                emotion=result['emotion'],
+                confidence=result['confidence'],
+                model_type='image_analysis',
+                session_id=None  # No active session for image uploads
+            )
+        
+        # Return results
+        response = {
+            'success': True,
+            'facesDetected': len(faces),
+            'emotions': results,
+            'resultImage': f"/static/results/{result_filename}"
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"Error analyzing image: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 # Move and restructure - delete the current analytics endpoints at the end of the file
 # and place this version before if __name__ == '__main__':

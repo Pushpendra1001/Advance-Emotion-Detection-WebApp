@@ -1,4 +1,4 @@
-// Similar to UserDashboard.jsx - remove patient name from startSession
+
 
 const startSession = async () => {
   try {
@@ -8,7 +8,7 @@ const startSession = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        // No patient name needed for teachers
+        
         modelType: 'classroom'
       }),
       credentials: 'include',

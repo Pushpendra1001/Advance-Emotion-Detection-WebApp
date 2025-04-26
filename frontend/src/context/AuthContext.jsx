@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Verification failed');
       
-      // Don't set user here since they need to login after verification
+      
       return {
         success: true,
         message: data.message || 'Email verified successfully'
@@ -112,7 +112,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setUser(null);
-    // Add logout API call if needed
+    
   };
 
   const value = {

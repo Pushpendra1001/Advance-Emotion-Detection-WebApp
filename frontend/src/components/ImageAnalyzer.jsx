@@ -11,7 +11,7 @@ const Input = styled('input')({
 });
 
 const EmotionChip = ({ emotion }) => {
-  // Colors for different emotions
+  
   const getColor = (emotion) => {
     switch(emotion.toLowerCase()) {
       case 'happy': return 'success';
@@ -56,7 +56,7 @@ const ImageAnalyzer = ({ userRole = 'general', onError }) => {
       
       setFile(selectedFile);
       setPreview(URL.createObjectURL(selectedFile));
-      setResults(null); // Clear previous results
+      setResults(null); 
     }
   };
   
@@ -79,13 +79,13 @@ const ImageAnalyzer = ({ userRole = 'general', onError }) => {
       const response = await fetch(`${PYTHON_API_URL}/analyze-image`, {
         method: 'POST',
         body: formData,
-        credentials: 'include', // Include this to send cookies
+        credentials: 'include', 
       });
       
       const responseText = await response.text();
       console.log("Raw response:", responseText);
       
-      // Try to parse as JSON 
+      
       let responseData;
       try {
         responseData = JSON.parse(responseText);

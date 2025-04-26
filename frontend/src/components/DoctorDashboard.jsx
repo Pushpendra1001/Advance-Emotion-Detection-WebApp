@@ -1,4 +1,4 @@
-// Update the startSession function in DoctorDashboard to include patient name
+
 
 const startSession = async () => {
   if (!patientName) {
@@ -14,7 +14,7 @@ const startSession = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        patientName: patientName, // Keep patient name for doctors
+        patientName: patientName, 
         modelType: selectedModel
       }),
       credentials: 'include',

@@ -107,7 +107,7 @@ export default function ModelSelection() {
     setSelectedModel(model);
     setNameInput('');
     
-    // Navigate directly to image analysis without dialog
+    
     if (model.id === 'image-analysis') {
       navigate('/image-analysis', {
         state: { userRole: userRole || 'general' }

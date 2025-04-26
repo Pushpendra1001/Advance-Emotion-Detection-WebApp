@@ -2,7 +2,7 @@ import axios from 'axios';
 
 axios.defaults.withCredentials = true;
 axios.interceptors.request.use(function (config) {
-  // Don't set this header manually - let the browser handle it
+  
   if (config.headers['Access-Control-Allow-Origin']) {
     delete config.headers['Access-Control-Allow-Origin'];
   }

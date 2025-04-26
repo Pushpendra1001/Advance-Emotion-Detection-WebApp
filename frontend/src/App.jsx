@@ -14,7 +14,7 @@ import ImageAnalysis from './components/ImageAnalyzer'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-// Protected route component
+
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
   if (!user) {
@@ -133,7 +133,7 @@ function MainApp() {
   );
 }
 
-// Component to handle role selection and redirection
+
 function RoleRedirect() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -141,10 +141,10 @@ function RoleRedirect() {
   
   useEffect(() => {
     if (user) {
-      // User is logged in, redirect to model selection
+      
       navigate('/model-selection', { state: { role: roleId } });
     } else {
-      // User is not logged in, redirect to auth
+      
       navigate('/auth', { state: { redirectTo: '/model-selection', role: roleId } });
     }
   }, [user, roleId, navigate]);

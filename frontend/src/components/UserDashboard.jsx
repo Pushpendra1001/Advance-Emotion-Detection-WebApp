@@ -49,14 +49,14 @@ const UserDashboard = ({ showImageTab = false }) => {
 
   const startSession = async () => {
     try {
-      // For general user, we don't need to ask for patient name
+      
       const response = await fetch(`${PYTHON_API_URL}/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // No patient name needed for general users
+      
           modelType: 'general'
         }),
         credentials: 'include',

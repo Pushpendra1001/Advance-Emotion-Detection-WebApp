@@ -16,6 +16,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:5005';
 
+
 export default function EmotionDetection() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -28,9 +29,9 @@ export default function EmotionDetection() {
   const [isLoading, setIsLoading] = useState(false);
   const [emotionData, setEmotionData] = useState([]);
   const [videoUrl, setVideoUrl] = useState('');
-  const [sessionId, setSessionId] = useState(null); // Add sessionId state
+  const [sessionId, setSessionId] = useState(null); 
 
-  // Add stopCamera function
+  
   const stopCamera = () => {
     if (videoRef.current?.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks();
@@ -45,7 +46,7 @@ export default function EmotionDetection() {
       return;
     }
 
-    // Cleanup function
+    
     return () => {
       stopCamera();
       if (isTracking) {
@@ -61,7 +62,7 @@ export default function EmotionDetection() {
       setEmotionData([]);
       setStartTime(new Date());
 
-      // Initialize session with backend
+      
       const sessionResponse = await fetch(`${PYTHON_API_URL}/start-session`, {
         method: 'POST',
         headers: {
@@ -79,13 +80,13 @@ export default function EmotionDetection() {
       }
 
       const { sessionId } = await sessionResponse.json();
-      setSessionId(sessionId); // Store the sessionId in state
+      setSessionId(sessionId); 
 
-      // Create video feed URL
+      
       const url = new URL(`${PYTHON_API_URL}/video_feed`);
       url.searchParams.append('session_id', sessionId);
       url.searchParams.append('t', Date.now());
-      url.searchParams.append('patientName', patientName); // Add patient name to URL
+      url.searchParams.append('patientName', patientName); 
 
       setVideoUrl(url.toString());
       console.log("Video feed URL:", url.toString());
@@ -102,7 +103,7 @@ export default function EmotionDetection() {
     }
   };
 
-  // Update the stopTracking function to handle errors better
+  
 
   const stopTracking = async () => {
     try {
@@ -131,7 +132,7 @@ export default function EmotionDetection() {
         setSessionReport(data);
         setSessionId(null);
       } else {
-        // Handle server-side error but don't show error to user if tracking was already stopped
+        
         console.error("Server reported an error: ", data.error);
         setSessionReport({
           dominantEmotion: 'Unknown',
@@ -140,16 +141,16 @@ export default function EmotionDetection() {
       }
     } catch (err) {
       console.error("Error stopping tracking:", err);
-      // Don't show error if it's just a server-side issue with calculating stats
-      // Just create a basic report
+      
+      
       setSessionReport({
         dominantEmotion: 'Unknown',
         duration: ((new Date() - startTime) / 1000 / 60).toFixed(2)
       });
     } finally {
       setIsLoading(false);
-      setIsTracking(false); // Ensure tracking is marked as stopped
-      setVideoUrl(''); // Ensure video feed is cleared
+      setIsTracking(false); 
+      setVideoUrl(''); 
     }
   };
 
@@ -171,9 +172,9 @@ export default function EmotionDetection() {
     }
   };
 
-  // Fix the fetchEmotionData function
+  
   const fetchEmotionData = async (sid) => {
-    if (!sid) return; // Don't fetch if no session ID
+    if (!sid) return; 
     
     try {
       const response = await fetch(`${PYTHON_API_URL}/emotion-data?session_id=${sid}`);
@@ -188,12 +189,12 @@ export default function EmotionDetection() {
     }
   };
 
-  // Fix the polling effect
+  
   useEffect(() => {
     let intervalId;
     
     if (isTracking && sessionId) {
-      // Poll for emotion updates every 2 seconds
+      
       intervalId = setInterval(() => {
         fetchEmotionData(sessionId);
       }, 2000);
@@ -202,7 +203,7 @@ export default function EmotionDetection() {
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isTracking, sessionId]); // Now sessionId is properly defined
+  }, [isTracking, sessionId]); 
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>

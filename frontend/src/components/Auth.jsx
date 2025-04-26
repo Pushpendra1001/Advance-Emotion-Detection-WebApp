@@ -16,11 +16,11 @@ function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Get redirect information from location state
+  
   const redirectTo = location.state?.redirectTo || '/';
   const role = location.state?.role || null;
 
-  // If user is already logged in, redirect
+  
   useEffect(() => {
     if (user) {
       navigate(redirectTo, { state: { role } });
@@ -44,7 +44,7 @@ function Auth() {
         
         if (result.success) {
           setMessage('Email verified successfully! Please login.');
-          // Reset form after successful verification
+          
           setTimeout(() => {
             setShowOtpField(false);
             setIsLogin(true);
@@ -60,7 +60,7 @@ function Auth() {
           setShowOtpField(true);
           setMessage('Please check your email for verification code');
         } else if (isLogin) {
-          // On successful login, navigate to redirect location
+          
           navigate(redirectTo, { state: { role } });
         }
       }

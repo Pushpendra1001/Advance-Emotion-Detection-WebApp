@@ -82,27 +82,27 @@ const Analytics = () => {
   const [selectedSession, setSelectedSession] = useState(null);
   const [tabValue, setTabValue] = useState(0);
   const [patients, setPatients] = useState([]);
-  const [userRole, setUserRole] = useState('all'); // New state for role filtering
+  const [userRole, setUserRole] = useState('all'); 
 
   useEffect(() => {
     fetchAnalytics();
 
     const intervalId = setInterval(() => {
       fetchAnalytics();
-    }, 30000); // Refresh every 30 seconds
+    }, 30000); 
 
     return () => clearInterval(intervalId);
-  }, [timeRange, selectedPatient, userRole]); // Added userRole dependency
+  }, [timeRange, selectedPatient, userRole]); 
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
   
-  // Handle role change
+  
   const handleRoleChange = (event, newRole) => {
     if (newRole !== null) {
       setUserRole(newRole);
-      // Reset patient selection when role changes
+      
       setSelectedPatient('all');
     }
   };
@@ -110,16 +110,16 @@ const Analytics = () => {
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
-      // Add the selectedPatient, timeRange and userRole as query parameters
+      
       const url = new URL(`${PYTHON_API_URL}/analytics`);
       url.searchParams.append('time_range', timeRange);
       
-      // Include patient filter if applicable
+      
       if (selectedPatient !== 'all') {
         url.searchParams.append('patient_name', selectedPatient);
       }
       
-      // Include role filter if applicable
+      
       if (userRole !== 'all') {
         url.searchParams.append('role', userRole);
       }
@@ -144,7 +144,7 @@ const Analytics = () => {
       const rawData = await response.json();
       console.log('Raw analytics data:', rawData);
       
-      // Filter patients based on role
+      
       let filteredPatients = [];
       if (rawData.sessionHistory && rawData.sessionHistory.length > 0) {
         filteredPatients = [...new Set(rawData.sessionHistory
@@ -166,7 +166,7 @@ const Analytics = () => {
     }
   };
 
-  // Update the processing function to filter based on role
+  
   const processAnalyticsData = (rawData, role) => {
     if (!rawData || !rawData.emotionsByModel) {
       return {
@@ -179,25 +179,25 @@ const Analytics = () => {
       };
     }
 
-    // Filter sessions by role if needed
+    
     const filteredSessions = role !== 'all'
       ? (rawData.sessionHistory || []).filter(s => s.modelType.includes(role))
       : rawData.sessionHistory || [];
 
-    // Process emotion model data with percentages
+    
     const totalEmotions = rawData.emotionsByModel.reduce((acc, curr) => acc + curr.count, 0) || 0;
     const emotionsWithPercentage = rawData.emotionsByModel.map(item => ({
       ...item,
       percentage: totalEmotions > 0 ? ((item.count / totalEmotions) * 100).toFixed(2) : 0
     }));
 
-    // Calculate emotion trends over time
+    
     const emotionTrends = calculateEmotionTrends(rawData.emotionsByTime || []);
     
-    // Process patient statistics
+    
     const patientStats = processPatientStats(filteredSessions);
     
-    // Calculate daily session counts
+    
     const dailySessionCounts = calculateDailySessions(filteredSessions);
 
     return {
@@ -214,7 +214,7 @@ const Analytics = () => {
     
     const patientMap = {};
     
-    // Group sessions by patient
+    
     sessions.forEach(session => {
       const patientName = session.patientName || 'Unknown';
       if (!patientMap[patientName]) {
@@ -227,25 +227,25 @@ const Analytics = () => {
         };
       }
       
-      // Update patient stats
+      
       const patient = patientMap[patientName];
       patient.sessionCount++;
       patient.totalDuration += session.duration || 0;
       
-      // Track dominant emotions
+      
       if (session.dominantEmotion) {
         patient.dominantEmotions[session.dominantEmotion] = 
           (patient.dominantEmotions[session.dominantEmotion] || 0) + 1;
       }
       
-      // Track most recent session
+      
       const sessionDate = new Date(session.startTime);
       if (!patient.lastSession || sessionDate > new Date(patient.lastSession)) {
         patient.lastSession = session.startTime;
       }
     });
     
-    // Convert to array and calculate most common emotion
+    
     return Object.values(patientMap).map(patient => {
       const dominantEmotionsEntries = Object.entries(patient.dominantEmotions);
       const mostCommonEmotion = dominantEmotionsEntries.length > 0 
@@ -301,7 +301,7 @@ const Analytics = () => {
       }
     });
     
-    // Convert to array and add patient count
+    
     return Object.values(dailyMap).map(day => ({
       ...day,
       uniquePatientCount: day.uniquePatients.size,
@@ -350,7 +350,7 @@ const Analytics = () => {
   );
 
   const SessionHistoryTable = ({ sessions, onViewReport, userRole }) => {
-    // Determine label based on role
+    
     const subjectLabel = userRole === 'doctor' ? 'Patient Name' : 
                         userRole === 'teacher' ? 'Class Name' : 'Subject Name';
 
@@ -628,7 +628,7 @@ const Analytics = () => {
     return { totalDetections, dominantEmotion, totalPatients, totalSessions };
   };
 
-  // Get title based on selected role
+  
   const getDashboardTitle = () => {
     switch(userRole) {
       case 'doctor':
@@ -640,7 +640,7 @@ const Analytics = () => {
     }
   };
   
-  // Get patient label based on role
+  
   const getPatientLabel = () => {
     if (userRole === 'doctor') {
       return "Patient";

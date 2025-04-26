@@ -14,7 +14,8 @@ app = Flask(__name__)
 CORS(app, 
      origins=["http://localhost:5173"],
      supports_credentials=True,
-     methods=["GET", "POST", "OPTIONS"])
+     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],  # Add all methods
+     allow_headers=["Content-Type", "Authorization"])      # Add allowed headers
 
 USERS_CSV = 'data/users.csv'
 EMOTIONS_CSV = 'data/emotions.csv'
@@ -699,51 +700,195 @@ def balance_emotion_predictions(preds, emotion_labels):
     
     return adjusted_preds
 
+# Move and restructure - delete the current analytics endpoints at the end of the file
+# and place this version before if __name__ == '__main__':
+
+@app.route('/analytics')
+def get_analytics():
+    try:
+        # Get query parameters
+        time_range = request.args.get('time_range', 'week')
+        patient_name = request.args.get('patient_name', None)
+        
+        print(f"Analytics requested - time_range: {time_range}, patient: {patient_name}")
+        
+        # Calculate date range based on time_range
+        end_time = datetime.now()
+        if time_range == 'day':
+            start_time = end_time - timedelta(days=1)
+        elif time_range == 'week':
+            start_time = end_time - timedelta(weeks=1)
+        elif time_range == 'month':
+            start_time = end_time - timedelta(days=30)
+        else:  # 'all'
+            start_time = datetime(2000, 1, 1)  # Long time ago
+            
+        # Format as string for comparison
+        start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Looking for data between {start_time_str} and now")
+        
+        # Read emotion data from CSV
+        emotions_data = []
+        if os.path.exists(EMOTIONS_CSV):
+            with open(EMOTIONS_CSV, 'r') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    # Apply time range filter
+                    if row['timestamp'] >= start_time_str:
+                        # Apply patient filter if specified
+                        if not patient_name or patient_name == 'all' or row['email'] == patient_name:
+                            emotions_data.append({
+                                'timestamp': row['timestamp'],
+                                'emotion': row['emotion'],
+                                'confidence': float(row['confidence']),
+                                'model_type': row['model_type'],
+                                'session_id': row['session_id'],
+                                'patient_name': row['email']
+                            })
+        
+        print(f"Found {len(emotions_data)} emotion records")
+        
+        # Process emotions by model type
+        emotions_by_model = {}
+        for entry in emotions_data:
+            emotion = entry['emotion']
+            if emotion not in emotions_by_model:
+                emotions_by_model[emotion] = {
+                    'emotion': emotion,
+                    'count': 0
+                }
+            emotions_by_model[emotion]['count'] += 1
+        
+        # Convert to list
+        emotions_by_model_list = list(emotions_by_model.values())
+        
+        # Process emotions by time
+        emotions_by_time = []
+        for entry in emotions_data:
+            emotions_by_time.append({
+                'timestamp': entry['timestamp'],
+                'emotion': entry['emotion'],
+                'count': 1
+            })
+        
+        # Extract unique session IDs
+        session_ids = set([entry['session_id'] for entry in emotions_data if entry['session_id']])
+        print(f"Found {len(session_ids)} unique session IDs")
+        
+        # Build session history
+        session_history = []
+        for session_id in session_ids:
+            session_emotions = [e for e in emotions_data if e['session_id'] == session_id]
+            
+            if not session_emotions:
+                continue
+                
+            # Extract timestamps to calculate duration
+            timestamps = [datetime.strptime(e['timestamp'], '%Y-%m-%d %H:%M:%S') for e in session_emotions]
+            start_time = min(timestamps) if timestamps else None
+            end_time = max(timestamps) if timestamps else None
+            
+            # Skip if no valid timestamps
+            if not start_time or not end_time:
+                continue
+                
+            duration = (end_time - start_time).total_seconds() / 60  # minutes
+            
+            # Count emotions in this session
+            emotion_counts = {}
+            for entry in session_emotions:
+                emotion = entry['emotion']
+                emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+            
+            # Calculate dominant emotion
+            dominant_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0] if emotion_counts else None
+            
+            # Calculate percentages
+            total = sum(emotion_counts.values())
+            emotion_percentages = {
+                emotion: (count / total * 100) for emotion, count in emotion_counts.items()
+            } if total > 0 else {}
+            
+            # Get model type and patient name
+            model_type = session_emotions[0]['model_type'] if session_emotions else 'Unknown'
+            patient_name = session_emotions[0]['patient_name'] if session_emotions else 'Anonymous'
+            
+            # Add to session history
+            session_history.append({
+                'sessionId': session_id,
+                'startTime': start_time.isoformat(),
+                'endTime': end_time.isoformat(),
+                'duration': duration,
+                'totalDetections': len(session_emotions),
+                'emotionBreakdown': emotion_counts,
+                'emotionPercentages': emotion_percentages,
+                'dominantEmotion': dominant_emotion,
+                'modelType': model_type,
+                'patientName': patient_name
+            })
+        
+        response_data = {
+            'emotionsByModel': emotions_by_model_list,
+            'emotionsByTime': emotions_by_time,
+            'sessionHistory': session_history
+        }
+        print(f"Returning analytics data with {len(session_history)} sessions")
+        return jsonify(response_data)
+    
+    except Exception as e:
+        print(f"Error getting analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/download-session-data')
+def download_session_data():
+    try:
+        session_id = request.args.get('session_id')
+        
+        if not session_id:
+            return jsonify({"error": "Session ID is required"}), 400
+            
+        # Read data from CSV
+        session_data = []
+        if os.path.exists(EMOTIONS_CSV):
+            with open(EMOTIONS_CSV, 'r') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    if row['session_id'] == session_id:
+                        session_data.append(row)
+        
+        if not session_data:
+            return jsonify({"error": "No data found for this session"}), 404
+        
+        # Create a temporary CSV file
+        temp_file = f"temp_session_{session_id}.csv"
+        with open(temp_file, 'w', newline='') as csvfile:
+            fieldnames = ['email', 'timestamp', 'emotion', 'confidence', 'model_type', 'session_id']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in session_data:
+                writer.writerow(row)
+                
+        # Send the file
+        return send_file(
+            temp_file,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f"session_{session_id}.csv"
+        )
+    
+    except Exception as e:
+        print(f"Error downloading session data: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+# Move this section before app.run()
+
 if __name__ == '__main__':
     # First inspect the model to understand what it expects
     if model is not None:
         inspect_model()
     
-    # Update the model validation part in the main execution block
-
-    if model is not None:
-        # Get the expected input shape
-        expected_input_shape = model.input_shape
-        print(f"Model expects input shape: {expected_input_shape}")
-        
-        # Test if the model can process a simple input with the right shape
-        try:
-            # Create a test input with the right channel dimension
-            if expected_input_shape[3] == 3:  # RGB
-                test_input = np.random.random((1, 48, 48, 3)).astype('float32')
-                print("Testing with RGB input")
-            else:  # Grayscale
-                test_input = np.random.random((1, 48, 48, 1)).astype('float32')
-                print("Testing with grayscale input")
-                
-            predictions = model.predict(test_input, verbose=0)
-            
-            # Verify the output shape matches our emotion labels
-            if predictions.shape[1] == len(emotion_labels):
-                model_valid = True
-                print("Model validated successfully with test input")
-                print(f"Model predicts {len(emotion_labels)} emotions: {emotion_labels}")
-            else:
-                print(f"Model output shape {predictions.shape} doesn't match our {len(emotion_labels)} emotion labels")
-                # Try to create a new compatible model if shapes don't match
-                model = create_simple_emotion_model()
-                if model:
-                    model_valid = True
-        except Exception as e:
-            print(f"Error validating model: {e}")
-            print("Current model cannot process inputs correctly. Trying to create a fallback model...")
-            model = create_simple_emotion_model()
-            if model:
-                model_valid = True
-    else:
-        print("Model was not loaded during initialization. Creating a fallback model...")
-        model = create_simple_emotion_model()
-        if model:
-            model_valid = True
-
+    # ... rest of your model validation code ...
+    
     app.run(debug=True, host='0.0.0.0', port=5005)

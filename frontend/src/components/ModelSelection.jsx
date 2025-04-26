@@ -24,6 +24,7 @@ const modelsByRole = {
       title: 'Doctor/Patient Analysis',
       description: 'Detect patient emotions during consultations for better healthcare outcomes',
       image: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=500',
+      dialogLabel: 'Patient Name'
     }
   ],
   teacher: [
@@ -32,6 +33,7 @@ const modelsByRole = {
       title: 'Teacher/Student Analysis',
       description: 'Monitor student engagement and emotional responses during lessons',
       image: 'https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=500',
+      dialogLabel: 'Class Name'
     }
   ],
   general: [
@@ -40,6 +42,7 @@ const modelsByRole = {
       title: 'General Emotion Analysis',
       description: 'Analyze emotions in various contexts and scenarios',
       image: 'https://images.unsplash.com/photo-1516387938699-a93567ec168e?auto=format&fit=crop&w=500',
+      dialogLabel: 'Your Name'
     }
   ]
 };
@@ -51,12 +54,14 @@ const defaultModels = [
     title: 'Doctor/Patient',
     description: 'Emotion detection for healthcare interactions',
     image: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=500',
+    dialogLabel: 'Patient Name'
   },
   {
     id: 'teacher-student',
     title: 'Teacher/Student',
     description: 'Emotion detection for educational environments',
     image: 'https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=500',
+    dialogLabel: 'Class Name'
   }
 ];
 
@@ -67,7 +72,7 @@ export default function ModelSelection() {
   const [userRole, setUserRole] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
   const [selectedModel, setSelectedModel] = useState(null);
-  const [patientName, setPatientName] = useState('');
+  const [nameInput, setNameInput] = useState('');
 
   useEffect(() => {
     const role = location.state?.role;
@@ -79,15 +84,33 @@ export default function ModelSelection() {
 
   const handleModelSelect = (model) => {
     setSelectedModel(model);
+    setNameInput('');
     setOpenDialog(true);
   };
 
   const handleStartSession = () => {
-    if (patientName.trim()) {
+    if (nameInput.trim()) {
       navigate(`/detection/${selectedModel.id}`, {
-        state: { patientName, modelType: selectedModel.id }
+        state: { patientName: nameInput, modelType: selectedModel.id }
       });
     }
+  };
+
+  const getDialogTitle = () => {
+    if (!selectedModel) return "Enter Details";
+    
+    const modelType = selectedModel.id;
+    if (modelType.includes("doctor")) {
+      return "Enter Patient Details";
+    } else if (modelType.includes("teacher")) {
+      return "Enter Class Details";
+    } else {
+      return "Enter Your Details";
+    }
+  };
+
+  const getInputLabel = () => {
+    return selectedModel?.dialogLabel || "Name";
   };
 
   return (
@@ -161,17 +184,17 @@ export default function ModelSelection() {
       </Grid>
 
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
-        <DialogTitle>Enter Patient Details</DialogTitle>
+        <DialogTitle>{getDialogTitle()}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             margin="dense"
-            label="Patient Name"
+            label={getInputLabel()}
             type="text"
             fullWidth
             variant="outlined"
-            value={patientName}
-            onChange={(e) => setPatientName(e.target.value)}
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
           />
         </DialogContent>
         <DialogActions>

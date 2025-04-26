@@ -27,6 +27,8 @@ import {
   Tab,
   TextField,
   Divider,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -36,6 +38,9 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import DateRangeIcon from '@mui/icons-material/DateRange';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import InsightsIcon from '@mui/icons-material/Insights';
+import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
+import SchoolIcon from '@mui/icons-material/School';
+import GroupIcon from '@mui/icons-material/Group';
 import {
   LineChart,
   Line,
@@ -69,14 +74,15 @@ const Analytics = () => {
     emotionsByModel: [],
     sessionHistory: [],
     emotionTrends: [],
-    patientStats: [], // New: patient-specific statistics
-    dailySessionCounts: [] // New: daily session counts
+    patientStats: [], 
+    dailySessionCounts: [] 
   });
   const [timeRange, setTimeRange] = useState('week');
   const [selectedPatient, setSelectedPatient] = useState('all');
   const [selectedSession, setSelectedSession] = useState(null);
   const [tabValue, setTabValue] = useState(0);
   const [patients, setPatients] = useState([]);
+  const [userRole, setUserRole] = useState('all'); // New state for role filtering
 
   useEffect(() => {
     fetchAnalytics();
@@ -86,20 +92,36 @@ const Analytics = () => {
     }, 30000); // Refresh every 30 seconds
 
     return () => clearInterval(intervalId);
-  }, [timeRange, selectedPatient]);
+  }, [timeRange, selectedPatient, userRole]); // Added userRole dependency
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+  };
+  
+  // Handle role change
+  const handleRoleChange = (event, newRole) => {
+    if (newRole !== null) {
+      setUserRole(newRole);
+      // Reset patient selection when role changes
+      setSelectedPatient('all');
+    }
   };
 
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
-      // Add the selectedPatient and timeRange as query parameters
+      // Add the selectedPatient, timeRange and userRole as query parameters
       const url = new URL(`${PYTHON_API_URL}/analytics`);
       url.searchParams.append('time_range', timeRange);
+      
+      // Include patient filter if applicable
       if (selectedPatient !== 'all') {
         url.searchParams.append('patient_name', selectedPatient);
+      }
+      
+      // Include role filter if applicable
+      if (userRole !== 'all') {
+        url.searchParams.append('role', userRole);
       }
       
       const response = await fetch(url, {
@@ -122,11 +144,19 @@ const Analytics = () => {
       const rawData = await response.json();
       console.log('Raw analytics data:', rawData);
       
-      // Extract unique patients from the data
-      const uniquePatients = [...new Set(rawData.sessionHistory?.map(s => s.patientName) || [])];
-      setPatients(uniquePatients);
+      // Filter patients based on role
+      let filteredPatients = [];
+      if (rawData.sessionHistory && rawData.sessionHistory.length > 0) {
+        filteredPatients = [...new Set(rawData.sessionHistory
+          .filter(session => {
+            if (userRole === 'all') return true;
+            return session.modelType.includes(userRole);
+          })
+          .map(s => s.patientName))];
+      }
+      setPatients(filteredPatients);
       
-      const processedData = processAnalyticsData(rawData);
+      const processedData = processAnalyticsData(rawData, userRole);
       setData(processedData);
     } catch (err) {
       console.error('Analytics error:', err);
@@ -136,7 +166,8 @@ const Analytics = () => {
     }
   };
 
-  const processAnalyticsData = (rawData) => {
+  // Update the processing function to filter based on role
+  const processAnalyticsData = (rawData, role) => {
     if (!rawData || !rawData.emotionsByModel) {
       return {
         emotionsByTime: [],
@@ -147,6 +178,11 @@ const Analytics = () => {
         dailySessionCounts: []
       };
     }
+
+    // Filter sessions by role if needed
+    const filteredSessions = role !== 'all'
+      ? (rawData.sessionHistory || []).filter(s => s.modelType.includes(role))
+      : rawData.sessionHistory || [];
 
     // Process emotion model data with percentages
     const totalEmotions = rawData.emotionsByModel.reduce((acc, curr) => acc + curr.count, 0) || 0;
@@ -159,18 +195,17 @@ const Analytics = () => {
     const emotionTrends = calculateEmotionTrends(rawData.emotionsByTime || []);
     
     // Process patient statistics
-    const patientStats = processPatientStats(rawData.sessionHistory || []);
+    const patientStats = processPatientStats(filteredSessions);
     
     // Calculate daily session counts
-    const dailySessionCounts = calculateDailySessions(rawData.sessionHistory || []);
+    const dailySessionCounts = calculateDailySessions(filteredSessions);
 
     return {
-      ...rawData,
       emotionsByModel: emotionsWithPercentage,
       emotionTrends,
       patientStats,
       dailySessionCounts,
-      sessionHistory: rawData.sessionHistory || []
+      sessionHistory: filteredSessions
     };
   };
 
@@ -314,14 +349,21 @@ const Analytics = () => {
     </Card>
   );
 
-  const SessionHistoryTable = ({ sessions, onViewReport }) => {
+  const SessionHistoryTable = ({ sessions, onViewReport, userRole }) => {
+    // Determine label based on role
+    const subjectLabel = userRole === 'doctor' ? 'Patient Name' : 
+                        userRole === 'teacher' ? 'Class Name' : 'Subject Name';
+
     return (
       <Paper elevation={3} sx={{ p: 3, mt: 4, overflowX: 'auto' }}>
-        <Typography variant="h6" gutterBottom>Session History</Typography>
+        <Typography variant="h6" gutterBottom>
+          {userRole === 'doctor' ? 'Consultation History' : 
+           userRole === 'teacher' ? 'Lesson History' : 'Session History'}
+        </Typography>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Patient Name</TableCell>
+              <TableCell>{subjectLabel}</TableCell>
               <TableCell>Start Time</TableCell>
               <TableCell>Duration (min)</TableCell>
               <TableCell>Model Type</TableCell>
@@ -586,14 +628,60 @@ const Analytics = () => {
     return { totalDetections, dominantEmotion, totalPatients, totalSessions };
   };
 
+  // Get title based on selected role
+  const getDashboardTitle = () => {
+    switch(userRole) {
+      case 'doctor':
+        return "Doctor's Analytics Dashboard";
+      case 'teacher':
+        return "Teacher's Analytics Dashboard";
+      default:
+        return "Emotion Analytics Dashboard";
+    }
+  };
+  
+  // Get patient label based on role
+  const getPatientLabel = () => {
+    if (userRole === 'doctor') {
+      return "Patient";
+    } else if (userRole === 'teacher') {
+      return "Class";
+    }
+    return "Session Subject";
+  };
+
   const { totalDetections, dominantEmotion, totalPatients, totalSessions } = getEmotionSummaryData();
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
       <Typography variant="h4" align="center" gutterBottom>
         <InsightsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-        Emotion Analytics Dashboard
+        {getDashboardTitle()}
       </Typography>
+
+      {/* Role selector toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+        <ToggleButtonGroup
+          color="primary"
+          value={userRole}
+          exclusive
+          onChange={handleRoleChange}
+          aria-label="Role selection"
+        >
+          <ToggleButton value="all">
+            <GroupIcon sx={{ mr: 1 }} />
+            All Users
+          </ToggleButton>
+          <ToggleButton value="doctor">
+            <LocalHospitalIcon sx={{ mr: 1 }} />
+            Doctors
+          </ToggleButton>
+          <ToggleButton value="teacher">
+            <SchoolIcon sx={{ mr: 1 }} />
+            Teachers
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
 
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 3, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
@@ -613,14 +701,14 @@ const Analytics = () => {
         </FormControl>
         
         <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel id="patient-label">Patient</InputLabel>
+          <InputLabel id="patient-label">{getPatientLabel()}</InputLabel>
           <Select
             labelId="patient-label"
             value={selectedPatient}
-            label="Patient"
+            label={getPatientLabel()}
             onChange={(e) => setSelectedPatient(e.target.value)}
           >
-            <MenuItem value="all">All Patients</MenuItem>
+            <MenuItem value="all">All {userRole === 'doctor' ? 'Patients' : userRole === 'teacher' ? 'Classes' : 'Subjects'}</MenuItem>
             {patients.map(patient => (
               <MenuItem key={patient} value={patient}>{patient}</MenuItem>
             ))}
@@ -636,13 +724,13 @@ const Analytics = () => {
         </Button>
       </Paper>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - Modified based on role */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={3}>
           <EmotionMetricsCard
-            title="Total Patients"
+            title={userRole === 'doctor' ? "Total Patients" : userRole === 'teacher' ? "Total Classes" : "Total Subjects"}
             value={totalPatients}
-            subtitle="Number of unique patients"
+            subtitle={userRole === 'doctor' ? "Number of unique patients" : userRole === 'teacher' ? "Number of unique classes" : "Number of unique subjects"}
             icon={<PersonIcon />}
           />
         </Grid>
@@ -650,7 +738,7 @@ const Analytics = () => {
           <EmotionMetricsCard
             title="Total Sessions"
             value={totalSessions}
-            subtitle="Number of therapy sessions"
+            subtitle={userRole === 'doctor' ? "Number of consultations" : userRole === 'teacher' ? "Number of lessons" : "Number of sessions"}
             icon={<AssignmentIcon />}
           />
         </Grid>
@@ -800,6 +888,7 @@ const Analytics = () => {
         <SessionHistoryTable 
           sessions={data.sessionHistory} 
           onViewReport={(session) => setSelectedSession(session)}
+          userRole={userRole}
         />
       )}
 
@@ -807,6 +896,7 @@ const Analytics = () => {
         <SessionReport
           session={selectedSession}
           onClose={() => setSelectedSession(null)}
+          userRole={userRole}
         />
       )}
     </Container>

@@ -1,51 +1,45 @@
-import * as tf from '@tensorflow/tfjs';
-
-export class EmotionDetectionService {
-  constructor() {
-    this.isInitialized = true;
+const saveEmotionData = async (data) => {
+  try {
+    const response = await fetch('/api/emotions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data)
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving emotion data:', error);
+    throw error;
   }
+};
 
-  async detectEmotions(videoElement) {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoElement, 0, 0);
-      
-      const frameData = canvas.toDataURL('image/jpeg');
-      
-      const response = await fetch('http://localhost:5005/api/emotion/detect', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ frame: frameData }),
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to detect emotions');
-      }
-
-      const data = await response.json();
-      return data.results;
-    } catch (error) {
-      console.error('Error detecting emotions:', error);
-      throw error;
-    }
+const getSessionReport = async (sessionId) => {
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}`);
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting session report:', error);
+    throw error;
   }
+};
 
-  async startEmotionTracking(videoElement, onEmotionDetected) {
-    return setInterval(async () => {
-      try {
-        const results = await this.detectEmotions(videoElement);
-        if (results && results.length > 0) {
-          onEmotionDetected(results[0]);
-        }
-      } catch (error) {
-        console.error('Error tracking emotions:', error);
-      }
-    }, 200);
+const downloadSessionData = async (sessionId) => {
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}/download`);
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session-${sessionId}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Error downloading session data:', error);
+    throw error;
   }
-}
+};
+
+export { saveEmotionData, getSessionReport, downloadSessionData };

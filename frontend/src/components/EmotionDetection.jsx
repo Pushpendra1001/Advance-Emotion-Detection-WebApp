@@ -1,489 +1,169 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { 
-  Box, 
-  Container, 
-  Typography, 
-  Paper,
-  CircularProgress,
-  Button,
+import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  Box,
+  Container,
   Grid,
-  Divider,
+  Paper,
+  Typography,
+  Button,
   List,
   ListItem,
   ListItemText,
-  LinearProgress
-} from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import StopIcon from '@mui/icons-material/Stop'
-import { PieChart, Pie, Tooltip, Legend, Cell, ResponsiveContainer } from 'recharts';
-import axios from 'axios'
-
-const modelPaths = {
-  'doctor-patient': 'src/models/my_model.keras',
-  'teacher-student': 'src/models/my_model.keras', 
-  'general-analysis': 'src/models/my_model.keras'
-};
+  CircularProgress
+} from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:5005';
 
-async function loadModel(modelPath) {
-  try {
-    const response = await fetch('/load-model', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modelPath }),
-      credentials: 'include'
-    });
-    
-    const data = await response.json();
-    
-    if (!response.ok) {
-      // Show error message to user
-      console.error('Model loading error:', data.error);
-      return { success: false, error: data.error };
-    }
-    
-    console.log('Model loaded successfully:', data);
-    return { success: true, data };
-  } catch (error) {
-    console.error('Error loading model:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-async function checkModelStatus() {
-  try {
-    const response = await fetch('/model-status', {
-      credentials: 'include'
-    });
-    
-    if (!response.ok) {
-      return { loaded: false };
-    }
-    
-    const data = await response.json();
-    return { loaded: data.status === 'loaded', info: data.model_info };
-  } catch (error) {
-    console.error('Error checking model status:', error);
-    return { loaded: false, error: error.message };
-  }
-}
-
-async function fetchAvailableModels() {
-  try {
-    const response = await fetch('/check-models', {
-      credentials: 'include'
-    });
-    
-    if (!response.ok) {
-      return { success: false, models: [] };
-    }
-    
-    const data = await response.json();
-    return { 
-      success: true, 
-      models: data.available_models || [],
-      cwd: data.cwd
-    };
-  } catch (error) {
-    console.error('Error fetching models:', error);
-    return { success: false, models: [], error: error.message };
-  }
-}
-
-const SessionReport = ({ report }) => {
-  if (!report) return null;
-
-  const maxConfidence = Math.max(...Object.values(report.emotionPercentages || {}));
-
-  return (
-    <Box sx={{ 
-      mt: 2,
-      p: 2, 
-      bgcolor: 'background.paper',
-      borderRadius: 1,
-      boxShadow: 1
-    }}>
-      <List dense>
-        <ListItem>
-          <ListItemText 
-            primary={
-              <Typography variant="h6" color="primary">
-                Session Summary
-              </Typography>
-            }
-          />
-        </ListItem>
-        <Divider />
-        <ListItem>
-          <ListItemText 
-            primary="Session Duration" 
-            secondary={
-              <Typography variant="body1" color="text.secondary">
-                {report.duration.toFixed(1)} minutes
-              </Typography>
-            }
-          />
-        </ListItem>
-        <Divider />
-        <ListItem>
-          <ListItemText 
-            primary="Total Detections" 
-            secondary={
-              <Typography variant="body1" color="text.secondary">
-                {report.totalDetections} emotions detected
-              </Typography>
-            }
-          />
-        </ListItem>
-        <Divider />
-        <ListItem>
-          <ListItemText 
-            primary="Dominant Emotion" 
-            secondary={
-              <Typography 
-                variant="body1" 
-                color="primary"
-                sx={{ fontWeight: 'bold' }}
-              >
-                {report.dominantEmotion || 'None detected'}
-              </Typography>
-            }
-          />
-        </ListItem>
-        <Divider />
-        <ListItem>
-          <ListItemText 
-            primary="Emotion Breakdown"
-            secondary={
-              <Box sx={{ mt: 1 }}>
-                {Object.entries(report.emotionPercentages || {}).map(([emotion, percentage]) => (
-                  <Box 
-                    key={emotion} 
-                    sx={{ 
-                      mb: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ width: '30%' }}>
-                      {emotion}:
-                    </Typography>
-                    <Box sx={{ width: '60%', mr: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={percentage}
-                        sx={{
-                          height: 8,
-                          borderRadius: 5,
-                          backgroundColor: 'grey.200',
-                          '& .MuiLinearProgress-bar': {
-                            backgroundColor: percentage === maxConfidence ? 'primary.main' : 'secondary.main'
-                          }
-                        }}
-                      />
-                    </Box>
-                    <Typography variant="body2" sx={{ width: '10%' }}>
-                      {percentage.toFixed(1)}%
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            }
-          />
-        </ListItem>
-      </List>
-      
-      {/* Pie Chart */}
-      {report.emotionBreakdown && Object.keys(report.emotionBreakdown).length > 0 && (
-        <Box sx={{ mt: 2, height: 200 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={Object.entries(report.emotionBreakdown).map(([emotion, count]) => ({
-                  name: emotion,
-                  value: count
-                }))}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-              >
-                {Object.entries(report.emotionBreakdown).map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </Box>
-      )}
-    </Box>
-  );
-};
-
 export default function EmotionDetection() {
-  const { modelId } = useParams()
-  const navigate = useNavigate()
-  const [isConnected, setIsConnected] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [isTracking, setIsTracking] = useState(false)
-  const [sessionId, setSessionId] = useState(null)
-  const [sessionReport, setSessionReport] = useState(null)
-  // Add this to your existing state variables
-  const [previousSessions, setPreviousSessions] = useState([]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { patientName, modelType } = location.state || {};
+  const videoRef = useRef(null);
+  const [isTracking, setIsTracking] = useState(false);
+  const [sessionReport, setSessionReport] = useState(null);
+  const [startTime, setStartTime] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [emotionData, setEmotionData] = useState([]);
+
+  // Add stopCamera function
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  };
 
   useEffect(() => {
-    const connectToBackend = async () => {
-      try {
-        console.log('Connecting to backend at:', PYTHON_API_URL);
-        setLoading(true);
-        setError(null);
-        
-        const response = await fetch(`${PYTHON_API_URL}/load-model`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-            // Don't add Access-Control-Allow-Origin header here - it's causing the CORS error
-          },
-          credentials: 'include', // Add this for cookies
-          body: JSON.stringify({
-            modelPath: modelPaths[modelId] || '/models/emotion_model.keras'
-          })
-        });
-        
-        console.log('Model loading response status:', response.status);
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to load model');
-        }
-        
-        const data = await response.json();
-        console.log('Model loading success:', data);
-        
-        setIsConnected(true);
-        // Start the video feed automatically once connected
-        await startVideoFeed();
-      } catch (err) {
-        console.error('Error connecting to Python backend:', err);
-        setError(`Could not connect to server: ${err.message}`);
-        setIsConnected(false);
-      } finally {
-        setLoading(false);
+    if (!patientName || !modelType) {
+      navigate('/model-selection');
+      return;
+    }
+
+    // Cleanup function
+    return () => {
+      stopCamera();
+      if (isTracking) {
+        stopTracking();
       }
     };
-
-    connectToBackend();
-  }, [modelId]);
-
-  // Add this function to fetch previous sessions
-  const fetchPreviousSessions = async () => {
-    try {
-      const response = await fetch(`${PYTHON_API_URL}/analytics`, {
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch session history');
-      }
-      
-      const data = await response.json();
-      setPreviousSessions(data.sessionHistory || []);
-    } catch (err) {
-      console.error('Error fetching session history:', err);
-    }
-  };
-
-  // Add this to your useEffect
-  useEffect(() => {
-    fetchPreviousSessions();
-  }, []);
-
-  const startSession = async () => {
-    try {
-      const response = await fetch(`${PYTHON_API_URL}/model-status`);
-      if (!response.ok) {
-        throw new Error('Failed to check model status');
-      }
-      const modelStatus = await response.json();
-      
-      if (!modelStatus.loaded) {
-        alert('No model is loaded. Please load a model first.');
-        return;
-      }
-      
-      // Proceed with starting session...
-      await startTracking();
-    } catch (err) {
-      console.error('Error checking model status:', err);
-      setError(err.message);
-    }
-  };
+  }, [patientName, modelType, navigate, isTracking]);
 
   const startTracking = async () => {
     try {
+      setIsLoading(true);
       setError(null);
-      
-      // Check camera permissions first
-      const hasPermission = await checkCameraPermission();
-      if (!hasPermission) {
-        return;
-      }
-      
-      console.log('Starting tracking session...');
-      
-      const response = await fetch(`${PYTHON_API_URL}/start-session`, {
+      setEmotionData([]);
+      setStartTime(new Date());
+
+      // Initialize session with backend
+      const sessionResponse = await fetch(`${PYTHON_API_URL}/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ modelType: modelId })
+        body: JSON.stringify({
+          patientName,
+          modelType
+        })
       });
-      
-      console.log('Start session response:', response.status);
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to start session');
-      }
-      
-      const data = await response.json();
-      console.log('Session started successfully:', data);
-      
-      setSessionId(data.sessionId);
-      setIsTracking(true);
-      setSessionReport(null);
-      
-      // Start video feed with new session ID
-      await startVideoFeed();
-    } catch (err) {
-      console.error('Error starting tracking:', err);
-      setError(err.message);
-    }
-  }
 
-  const stopTracking = useCallback(async () => {
+      if (!sessionResponse.ok) {
+        throw new Error('Failed to start session');
+      }
+
+      const { sessionId } = await sessionResponse.json();
+
+      // Create video feed URL
+      const videoUrl = new URL(`${PYTHON_API_URL}/video_feed`);
+      videoUrl.searchParams.append('session_id', sessionId);
+      videoUrl.searchParams.append('t', Date.now());
+
+      // Set up video feed
+      const videoFeed = document.getElementById('video-feed');
+      if (videoFeed) {
+        videoFeed.style.display = 'block';
+        videoFeed.src = videoUrl.toString();
+      }
+
+      setIsTracking(true);
+
+    } catch (err) {
+      setError('Failed to start tracking: ' + err.message);
+      setIsTracking(false);
+      const videoFeed = document.getElementById('video-feed');
+      if (videoFeed) {
+        videoFeed.src = '';
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stopTracking = async () => {
     try {
-      if (!sessionId) {
-        console.error('No active session to stop');
-        return;
-      }
-      
-      // First stop the video feed
-      const videoElement = document.getElementById('video-feed');
-      if (videoElement) {
-        videoElement.src = '';  // Clear the source
-        videoElement.style.display = 'none';
-      }
-      
-      console.log('Stopping session:', sessionId);
-      
-      // Send stop request to server
+      setIsLoading(true);
+      setIsTracking(false);
+
       const response = await fetch(`${PYTHON_API_URL}/stop-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ 
-          sessionId,
-          email: sessionStorage.getItem('userEmail') // Add user email for tracking
+        body: JSON.stringify({
+          patientName,
+          modelType,
+          startTime: startTime?.toISOString(),
+          endTime: new Date().toISOString()
         })
       });
-      
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to stop session');
+        throw new Error('Failed to stop tracking');
       }
-      
-      // Get session report
+
       const data = await response.json();
-      console.log('Session stopped, received report:', data);
-      
-      // Update state with report data
       setSessionReport(data);
-      setIsTracking(false);
-      setSessionId(null);
-      
-      // Fetch updated session history
-      await fetchPreviousSessions();
-      
-    } catch (err) {
-      console.error('Error stopping tracking:', err);
-      setError(`Failed to stop session: ${err.message}`);
-    }
-  }, [sessionId, fetchPreviousSessions]);
 
-  // Cleanup effect
-  useEffect(() => {
-    return () => {
-      // Cleanup video elements when component unmounts
-      const videoElement = document.getElementById('video-feed');
-      const overlayElement = document.getElementById('emotion-overlay');
-      
-      if (videoElement && videoElement.srcObject) {
-        const tracks = videoElement.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
+      // Clear video feed
+      const videoFeed = document.getElementById('video-feed');
+      if (videoFeed) {
+        videoFeed.src = '';
+        videoFeed.style.display = 'none';
       }
-      
-      if (overlayElement) {
-        overlayElement.remove();
-      }
-    };
-  }, []);
-
-  const startVideoFeed = async () => {
-    try {
-      const videoElement = document.getElementById('video-feed');
-      if (!videoElement) {
-        throw new Error('Video element not found');
-      }
-
-      // Create video URL with timestamp to prevent caching
-      const videoUrl = new URL(`${PYTHON_API_URL}/video_feed`);
-      videoUrl.searchParams.append('model_type', modelId);
-      videoUrl.searchParams.append('t', Date.now());  // Prevent caching
-      if (sessionId) {
-        videoUrl.searchParams.append('session_id', sessionId);
-      }
-
-      // Set up video element
-      videoElement.style.display = 'block';
-      videoElement.src = videoUrl.toString();
-      
-      console.log('Starting video feed from:', videoUrl.toString());
 
     } catch (err) {
-      console.error('Error starting video feed:', err);
-      setError('Failed to start video feed: ' + err.message);
+      setError('Failed to stop tracking: ' + err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Add this function near the top of your component
-  const checkCameraPermission = async () => {
+  const downloadSessionData = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // Stop the stream immediately as we just needed to check permissions
-      stream.getTracks().forEach(track => track.stop());
-      return true;
+      const csvContent = 'data:text/csv;charset=utf-8,' + 
+        'Timestamp,Emotion,Confidence\n' +
+        emotionData.map(e => `${e.timestamp},${e.emotion},${e.confidence}`).join('\n');
+      
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `session_${patientName}_${new Date().toISOString()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (err) {
-      console.error('Camera permission error:', err);
-      setError('Camera access denied. Please enable camera permissions.');
-      return false;
+      setError('Failed to download session data: ' + err.message);
     }
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
+    <Container maxWidth="lg" sx={{ py: 4 }}>
       <Button
         startIcon={<ArrowBackIcon />}
         onClick={() => navigate('/model-selection')}
@@ -492,142 +172,99 @@ export default function EmotionDetection() {
         Back to Model Selection
       </Button>
 
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={8}>
-          <Paper elevation={3} sx={{ p: 3 }}>
-            <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
-              {modelId.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join('/')} Emotion Detection
+      {error && (
+        <Typography color="error" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+      )}
+
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Camera Feed - {patientName}
             </Typography>
-
-            {error && (
-              <Typography color="error" sx={{ mb: 2 }}>
-                Error: {error}
-              </Typography>
-            )}
-
-            {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                <CircularProgress />
-                <Typography sx={{ ml: 2 }}>Connecting to server...</Typography>
-              </Box>
-            ) : isConnected ? (
-              <>
-                <Box sx={{ mb: 2 }}>
-                  <Button
-                    variant="contained"
-                    color={isTracking ? "error" : "primary"}
-                    startIcon={isTracking ? <StopIcon /> : <PlayArrowIcon />}
-                    onClick={isTracking ? stopTracking : startSession}
-                  >
-                    {isTracking ? "Stop Tracking" : "Start Tracking"}
-                  </Button>
-                </Box>
-
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 800,
-                    height: 600,
-                    margin: '0 auto',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    borderRadius: 2,
-                    boxShadow: 3,
-                    bgcolor: 'black',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center'
-                  }}
+            <Box sx={{ position: 'relative' }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ 
+                  width: '100%', 
+                  borderRadius: '8px',
+                  display: !isTracking ? 'block' : 'none' 
+                }}
+              />
+              <img
+                id="video-feed"
+                alt="Emotion Detection Feed"
+                style={{ 
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  display: isTracking ? 'block' : 'none',
+                  objectFit: 'contain'
+                }}
+              />
+              <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  color={isTracking ? "error" : "primary"}
+                  onClick={isTracking ? stopTracking : startTracking}
+                  fullWidth
+                  disabled={isLoading}
                 >
-                  <img
-                    id="video-feed"
-                    alt="Emotion Detection Feed"
-                    style={{ 
-                      width: '100%', 
-                      height: '100%', 
-                      objectFit: 'contain',
-                      display: isTracking ? 'block' : 'none'
-                    }}
-                  />
-                  {!isTracking && (
-                    <Typography variant="h6" color="white" sx={{ textAlign: 'center' }}>
-                      Click "Start Tracking" to begin emotion detection
-                    </Typography>
-                  )}
-                </Box>
-              </>
-            ) : (
-              <Box sx={{ textAlign: 'center', p: 4 }}>
-                <Typography color="error">
-                  Could not connect to the emotion detection service.
-                </Typography>
-                <Button 
-                  variant="contained" 
-                  onClick={() => window.location.reload()}
-                  sx={{ mt: 2 }}
-                >
-                  Retry Connection
+                  {isLoading ? <CircularProgress size={24} /> : 
+                    isTracking ? "Stop Tracking" : "Start Tracking"}
                 </Button>
               </Box>
-            )}
+            </Box>
           </Paper>
         </Grid>
 
-        <Grid item xs={12} md={4}>
-          <Paper elevation={3} sx={{ p: 3, maxHeight: '80vh', overflow: 'auto' }}>
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
-              Session Reports
+              Session Report
             </Typography>
-            
-            {/* Current Session */}
-            {isTracking && (
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" color="primary">Current Session</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Session in progress...
-                </Typography>
-              </Box>
+            {(isTracking || sessionReport) && (
+              <List>
+                <ListItem>
+                  <ListItemText
+                    primary="Session Duration"
+                    secondary={`${((new Date() - startTime) / 1000 / 60).toFixed(2)} minutes`}
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="Emotions Detected"
+                    secondary={emotionData.length}
+                  />
+                </ListItem>
+                {sessionReport && (
+                  <ListItem>
+                    <ListItemText
+                      primary="Dominant Emotion"
+                      secondary={sessionReport.dominantEmotion || 'N/A'}
+                    />
+                  </ListItem>
+                )}
+              </List>
             )}
-
-            {/* Latest Session Report */}
-            {sessionReport && (
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="subtitle1" color="primary">Latest Session</Typography>
-                <SessionReport report={sessionReport} />
-              </Box>
-            )}
-
-            {/* Previous Sessions */}
-            {previousSessions.length > 0 && (
-              <Box>
-                <Typography variant="subtitle1" color="primary" sx={{ mt: 3, mb: 2 }}>
-                  Previous Sessions
-                </Typography>
-                {previousSessions.map((session, index) => (
-                  <Box key={session.sessionId} sx={{ mb: 4 }}>
-                    <Typography variant="subtitle2">
-                      Session {previousSessions.length - index}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {new Date(session.startTime).toLocaleString()}
-                    </Typography>
-                    <SessionReport report={{
-                      duration: session.duration,
-                      totalDetections: session.totalDetections,
-                      dominantEmotion: session.dominantEmotion,
-                      emotionPercentages: session.emotionPercentages,
-                      emotionBreakdown: session.emotionBreakdown
-                    }} />
-                    <Divider sx={{ mt: 2 }} />
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            {!isTracking && !sessionReport && previousSessions.length === 0 && (
-              <Typography variant="body2" color="text.secondary">
-                No session reports available. Start tracking to generate reports.
-              </Typography>
+            {(isTracking || sessionReport) && (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={downloadSessionData}
+                sx={{ mt: 2 }}
+                fullWidth
+                disabled={emotionData.length === 0}
+              >
+                Download Session Data
+              </Button>
             )}
           </Paper>
         </Grid>

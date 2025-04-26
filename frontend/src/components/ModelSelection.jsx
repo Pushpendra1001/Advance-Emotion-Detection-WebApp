@@ -9,6 +9,11 @@ import {
   CardMedia,
   Typography,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
 } from '@mui/material';
 
 // Model definitions for different roles
@@ -60,15 +65,30 @@ export default function ModelSelection() {
   const location = useLocation();
   const [models, setModels] = useState(defaultModels);
   const [userRole, setUserRole] = useState(null);
-  
+  const [openDialog, setOpenDialog] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [patientName, setPatientName] = useState('');
+
   useEffect(() => {
-    // Get the role from location state
     const role = location.state?.role;
     if (role && modelsByRole[role]) {
       setModels(modelsByRole[role]);
       setUserRole(role);
     }
   }, [location]);
+
+  const handleModelSelect = (model) => {
+    setSelectedModel(model);
+    setOpenDialog(true);
+  };
+
+  const handleStartSession = () => {
+    if (patientName.trim()) {
+      navigate(`/detection/${selectedModel.id}`, {
+        state: { patientName, modelType: selectedModel.id }
+      });
+    }
+  };
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -95,18 +115,16 @@ export default function ModelSelection() {
       <Grid container spacing={4} justifyContent="center">
         {models.map((model) => (
           <Grid item xs={12} md={userRole ? 8 : 6} key={model.id}>
-            <Card 
-              sx={{ 
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'scale(1.02)',
-                  boxShadow: 6
-                }
-              }}
-            >
+            <Card sx={{ 
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              transition: 'transform 0.2s',
+              '&:hover': {
+                transform: 'scale(1.02)',
+                boxShadow: 6
+              }
+            }}>
               <CardMedia
                 component="img"
                 height="250"
@@ -125,7 +143,7 @@ export default function ModelSelection() {
                   variant="contained"
                   size="large"
                   fullWidth
-                  onClick={() => navigate(`/detection/${model.id}`)}
+                  onClick={() => handleModelSelect(model)}
                   sx={{
                     mt: 2,
                     backgroundColor: '#2c3e50',
@@ -134,13 +152,35 @@ export default function ModelSelection() {
                     }
                   }}
                 >
-                  Select Model
+                  Start Session
                 </Button>
               </CardContent>
             </Card>
           </Grid>
         ))}
       </Grid>
+
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
+        <DialogTitle>Enter Patient Details</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Patient Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={patientName}
+            onChange={(e) => setPatientName(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+          <Button onClick={handleStartSession} variant="contained">
+            Start Session
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

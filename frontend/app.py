@@ -30,8 +30,8 @@ if not os.path.exists(EMOTIONS_CSV):
 # Initialize model as global variable
 model = None
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-# Use a simplified set of emotion labels that match common emotion models
-emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']  # 7 basic emotions
+# Use a simplified set of emotion labels that match your custom model
+emotion_labels = ['angry', 'happy', 'neutral']  # Only 3 emotions in your custom model
 active_sessions = {}
 active_cameras = {}
 
@@ -39,11 +39,11 @@ active_cameras = {}
 def find_model_file():
     print("Searching for model file...")
     possible_paths = [
-        os.path.join('src', 'models', 'my_model.keras'),
-        os.path.join('models', 'my_model.keras'),
-        os.path.join('frontend', 'src', 'models', 'my_model.keras'),
-        'my_model.keras',
-        os.path.join('..', 'models', 'my_model.keras')
+        os.path.join('frontend', 'src', 'models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras'),
+        os.path.join('src', 'models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras'),
+        'emotion_recognition_model_filtered(Angry,happy,neutral).keras',
+        os.path.join('models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras'),
+        os.path.join('..', 'models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras')
     ]
     
     for path in possible_paths:
@@ -52,10 +52,10 @@ def find_model_file():
             return path
             
     # If model not found in expected locations, search whole directory
-    print("Searching entire directory...")
+    print("Searching entire directory for custom emotion model...")
     for root, _, files in os.walk(os.getcwd()):
         for file in files:
-            if file.endswith('.keras'):
+            if 'emotion_recognition_model_filtered' in file and file.endswith('.keras'):
                 path = os.path.join(root, file)
                 print(f"Found model at: {path}")
                 return path
@@ -82,8 +82,8 @@ def validate_model_path(model_path):
         os.path.join(os.getcwd(), model_path),  
         os.path.join(os.getcwd(), 'models', model_path),  
         os.path.join(os.getcwd(), 'frontend', model_path),  
-        os.path.join(os.getcwd(), 'frontend', '/models/my_model.keras'),  
-        os.path.join(os.getcwd(), 'backend', 'models', '/models/my_model.keras')  
+        os.path.join(os.getcwd(), 'frontend', '/models/emotion_recognition_model_filtered(Angry,happy,neutral).keras'),  
+        os.path.join(os.getcwd(), 'backend', 'models', '/models/emotion_recognition_model_filtered(Angry,happy,neutral).keras')  
     ]
     
     for path in potential_paths:
@@ -152,10 +152,6 @@ def process_frame(frame, session_data):
         gray = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
         
-        # Print face detection results only occasionally to avoid flooding the console
-        if len(faces) > 0:
-            print(f"Detected {len(faces)} faces")
-        
         for (x, y, w, h) in faces:
             # Draw rectangle around face
             cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
@@ -176,17 +172,14 @@ def process_frame(frame, session_data):
                 # Convert to RGB (model may expect RGB)
                 face_roi_rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
                 
-                # Resize to model input size (48x48 is common for emotion models)
+                # Resize to 48x48 (common size for emotion models)
                 face_roi_resized = cv2.resize(face_roi_rgb, (48, 48))
                 
                 # Normalize pixel values to [0, 1]
-                face_roi_norm = face_roi_resized.astype("float32") / 255.0
-                
+                face_roi_norm = preprocess_face_for_emotion(face_roi_rgb)
+
                 # Add batch dimension
                 face_roi_batch = np.expand_dims(face_roi_norm, axis=0)
-                
-                # Print shape info for debugging
-                print(f"Face ROI shape before prediction: {face_roi_batch.shape}")
                 
                 # Check if model is loaded
                 if model is None:
@@ -195,25 +188,57 @@ def process_frame(frame, session_data):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                     continue
                 
-                # Try to get model input shape
-                input_shape = model.input_shape
-                if input_shape:
-                    print(f"Model expects input shape: {input_shape}")
-                    # Resize to match expected input shape if needed
-                    if len(input_shape) == 4:
-                        expected_h, expected_w = input_shape[1], input_shape[2]
-                        if expected_h is not None and expected_w is not None:
-                            face_roi_resized = cv2.resize(face_roi_rgb, (expected_w, expected_h))
-                            face_roi_norm = face_roi_resized.astype("float32") / 255.0
-                            face_roi_batch = np.expand_dims(face_roi_norm, axis=0)
-                            print(f"Reshaped to match model input: {face_roi_batch.shape}")
-                
-                # Predict emotion
+                # Check model's input shape
+                model_input_shape = model.input_shape
+                print(f"Model input shape: {model_input_shape}")
+
+                # Make sure face_roi_batch has the correct shape
+                if model_input_shape[3] == 3 and face_roi_batch.shape[3] != 3:
+                    # Convert grayscale to RGB
+                    grayscale = np.squeeze(face_roi_batch, axis=3)
+                    face_roi_batch = np.stack([grayscale, grayscale, grayscale], axis=-1)
+                    print(f"Converted grayscale to RGB: {face_roi_batch.shape}")
+                elif model_input_shape[3] == 1 and face_roi_batch.shape[3] != 1:
+                    # Convert RGB to grayscale
+                    face_roi_batch = np.mean(face_roi_batch, axis=3, keepdims=True)
+                    print(f"Converted RGB to grayscale: {face_roi_batch.shape}")
+
+                # Predict emotion with your custom model
                 preds = model.predict(face_roi_batch, verbose=0)
+
+                # Apply bias correction for class imbalance
+                preds = balance_emotion_predictions(preds, emotion_labels)
                 emotion_idx = np.argmax(preds[0])
-                emotion = emotion_labels[emotion_idx] if emotion_idx < len(emotion_labels) else "unknown"
-                confidence = float(preds[0][emotion_idx])
                 
+                # Apply confidence threshold - ignore low confidence predictions
+                MIN_CONFIDENCE = 0.40  # Adjust this threshold as needed
+                if np.max(preds[0]) < MIN_CONFIDENCE:
+                    print(f"Low confidence prediction: {np.max(preds[0]):.2f} - treating as neutral")
+                    # Find the index for neutral in your emotion_labels
+                    neutral_idx = emotion_labels.index('neutral') if 'neutral' in emotion_labels else None
+                    if neutral_idx is not None:
+                        emotion_idx = neutral_idx
+                        confidence = float(preds[0][emotion_idx])
+                    else:
+                        # If no neutral class, use the highest confidence one but note it
+                        emotion = emotion_labels[emotion_idx]
+                        confidence = float(preds[0][emotion_idx])
+                        print(f"Using low confidence emotion: {emotion}")
+                else:
+                    # Normal case - good confidence
+                    confidence = float(preds[0][emotion_idx])
+
+                # Map prediction index to emotion label
+                if emotion_idx < len(emotion_labels):
+                    emotion = emotion_labels[emotion_idx]
+                else:
+                    print(f"Warning: Model predicted class {emotion_idx} but we only have {len(emotion_labels)} labels")
+                    emotion = "unknown"
+                    confidence = 0.0
+
+                # Print all emotion scores for debugging
+                emotion_scores = {emotion_labels[i]: float(preds[0][i]) for i in range(len(emotion_labels))}
+                print(f"All emotion scores: {emotion_scores}")
                 print(f"Predicted emotion: {emotion} with confidence: {confidence:.2f}")
                 
                 # Get patient name from session data
@@ -262,7 +287,13 @@ def video_feed():
     try:
         session_id = request.args.get('session_id')
         print(f"Video feed requested for session: {session_id}")
-        print(f"Active sessions: {active_sessions.keys()}")
+        
+        # Add model inspection to help debug
+        if model is not None:
+            print("Model input shape:", model.input_shape)
+            print("Model output shape:", model.output_shape)
+            print("Model expects:", model.input_shape[1:])
+            print("Emotion labels:", emotion_labels)
         
         if not session_id or session_id not in active_sessions:
             return jsonify({"error": "Invalid session"}), 400
@@ -538,30 +569,55 @@ def fix_model_input_shape():
         return False
 
 def inspect_model():
-    """Print out model architecture and expected input shape"""
+    """Print out detailed model architecture and expected input shape"""
     try:
         if model is None:
             print("No model loaded to inspect")
             return
             
-        print("Model Summary:")
+        # Print model summary
+        print("===== MODEL DETAILS =====")
         model.summary()
         
-        # Get the input shape from the first layer
-        input_shape = model.layers[0].input_shape
-        print(f"Input shape: {input_shape}")
+        # Get the input information
+        input_shape = model.input_shape
+        print(f"Model input shape: {input_shape}")
         
-        # Get the output shape from the last layer
+        # Check the first layer specifically
+        first_layer = model.layers[0]
+        print(f"First layer: {first_layer.name}, Input shape: {first_layer.input_shape}")
+        
+        # Get the output shape
         output_shape = model.layers[-1].output_shape
         print(f"Output shape: {output_shape}")
         print(f"Number of output classes: {output_shape[1]}")
         
+        # Compare output classes with emotion labels
         if output_shape[1] != len(emotion_labels):
             print(f"WARNING: Model outputs {output_shape[1]} classes but we have {len(emotion_labels)} emotion labels!")
-            print(f"This may cause incorrect emotion labeling.")
+            print("This mismatch could cause incorrect emotion labeling.")
+        
+        # Create a test input to see if the model accepts it
+        if input_shape[1:]:
+            # RGB test input
+            rgb_input = np.random.random((1, 48, 48, 3)).astype('float32')
+            try:
+                _ = model.predict(rgb_input, verbose=0)
+                print(f"Model successfully processes RGB input with shape {rgb_input.shape}")
+            except Exception as e:
+                print(f"Model FAILS on RGB input: {e}")
             
+            # Grayscale test input
+            gray_input = np.random.random((1, 48, 48, 1)).astype('float32')
+            try:
+                _ = model.predict(gray_input, verbose=0)
+                print(f"Model successfully processes grayscale input with shape {gray_input.shape}")
+            except Exception as e:
+                print(f"Model FAILS on grayscale input: {e}")
+                
     except Exception as e:
         print(f"Error inspecting model: {str(e)}")
+        traceback.print_exc()
 
 def create_simple_emotion_model():
     """Create a simple emotion recognition model with proper input shape"""
@@ -570,7 +626,7 @@ def create_simple_emotion_model():
         from tensorflow.keras.models import Sequential
         from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Dropout
         
-        # Create a simple CNN model
+        # Create a simple CNN model that only predicts the 3 emotions we care about
         model = Sequential([
             Conv2D(32, (3, 3), activation='relu', input_shape=(48, 48, 3)),
             MaxPooling2D(2, 2),
@@ -581,7 +637,7 @@ def create_simple_emotion_model():
             Flatten(),
             Dense(128, activation='relu'),
             Dropout(0.5),
-            Dense(len(emotion_labels), activation='softmax')
+            Dense(len(emotion_labels), activation='softmax')  # Only 3 outputs for angry, happy, neutral
         ])
         
         # Compile model
@@ -598,18 +654,86 @@ def create_simple_emotion_model():
         traceback.print_exc()
         return None
 
-if __name__ == '__main__':
-    # Model should already be loaded from the earlier initialization code
-    model_valid = False
+def preprocess_face_for_emotion(face_image):
+    """Apply additional preprocessing to help with emotion recognition"""
+    # Convert to RGB (ensure consistent color space)
+    if len(face_image.shape) == 2:  # If grayscale
+        face_image = cv2.cvtColor(face_image, cv2.COLOR_GRAY2RGB)
+    elif face_image.shape[2] == 3:  # If BGR (OpenCV default)
+        face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
     
+    # Resize to the target size (48x48) which is common for emotion models
+    resized = cv2.resize(face_image, (48, 48))
+    
+    # Apply contrast enhancement
+    lab = cv2.cvtColor(resized, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    enhanced_lab = cv2.merge((cl, a, b))
+    enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+    
+    # Normalize pixel values
+    normalized = enhanced_rgb.astype("float32") / 255.0
+    
+    # Print shapes for debugging
+    print(f"Preprocessed image shape: {normalized.shape}")
+    
+    # Don't add channel dimension - ensure it remains (48, 48, 3)
+    return normalized
+
+def balance_emotion_predictions(preds, emotion_labels):
+    """Apply bias correction to handle class imbalance"""
+    # Adjusts prediction scores to compensate for dataset bias
+    # These values should be tuned based on your model's behavior
+    bias_correction = {
+        'angry': 1.2,   # Boost angry predictions slightly
+        'happy': 0.85,  # Reduce happy predictions as it's overrepresented
+        'neutral': 1.1  # Slightly boost neutral
+    }
+    
+    adjusted_preds = preds.copy()
+    for i, emotion in enumerate(emotion_labels):
+        if emotion.lower() in bias_correction:
+            adjusted_preds[0][i] *= bias_correction[emotion.lower()]
+    
+    return adjusted_preds
+
+if __name__ == '__main__':
+    # First inspect the model to understand what it expects
     if model is not None:
-        # Test if the model can process a simple input
+        inspect_model()
+    
+    # Update the model validation part in the main execution block
+
+    if model is not None:
+        # Get the expected input shape
+        expected_input_shape = model.input_shape
+        print(f"Model expects input shape: {expected_input_shape}")
+        
+        # Test if the model can process a simple input with the right shape
         try:
-            # Create a test input with a random 48x48 RGB image
-            test_input = np.random.random((1, 48, 48, 3)).astype('float32')
-            _ = model.predict(test_input, verbose=0)
-            model_valid = True
-            print("Model validated successfully with test input")
+            # Create a test input with the right channel dimension
+            if expected_input_shape[3] == 3:  # RGB
+                test_input = np.random.random((1, 48, 48, 3)).astype('float32')
+                print("Testing with RGB input")
+            else:  # Grayscale
+                test_input = np.random.random((1, 48, 48, 1)).astype('float32')
+                print("Testing with grayscale input")
+                
+            predictions = model.predict(test_input, verbose=0)
+            
+            # Verify the output shape matches our emotion labels
+            if predictions.shape[1] == len(emotion_labels):
+                model_valid = True
+                print("Model validated successfully with test input")
+                print(f"Model predicts {len(emotion_labels)} emotions: {emotion_labels}")
+            else:
+                print(f"Model output shape {predictions.shape} doesn't match our {len(emotion_labels)} emotion labels")
+                # Try to create a new compatible model if shapes don't match
+                model = create_simple_emotion_model()
+                if model:
+                    model_valid = True
         except Exception as e:
             print(f"Error validating model: {e}")
             print("Current model cannot process inputs correctly. Trying to create a fallback model...")
@@ -621,8 +745,5 @@ if __name__ == '__main__':
         model = create_simple_emotion_model()
         if model:
             model_valid = True
-    
-    if not model_valid:
-        print("WARNING: No valid model was loaded. Emotion detection will not work.")
-    
+
     app.run(debug=True, host='0.0.0.0', port=5005)

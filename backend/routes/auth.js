@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-// Email transporter setup
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -14,10 +14,10 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Generate OTP
+
 const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
 
-// Send OTP email
+
 const sendOTP = async (email, otp) => {
   try {
     await transporter.sendMail({
@@ -36,18 +36,18 @@ const sendOTP = async (email, otp) => {
   }
 };
 
-// Register endpoint
+
 router.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user exists
+    
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // Generate and send OTP
+    
     const otp = generateOTP();
     const hashedPassword = await bcrypt.hash(password, 12);
     
@@ -56,7 +56,7 @@ router.post('/register', async (req, res) => {
       password: hashedPassword,
       otp: {
         code: otp,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes expiry
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) 
       }
     });
 
@@ -72,7 +72,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Verify OTP endpoint
+
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -94,21 +94,21 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ message: 'Invalid OTP' });
     }
 
-    // Mark user as verified and remove OTP
+    
     user.isVerified = true;
     user.otp = undefined;
     await user.save();
 
-    // Generate JWT token
+    
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { 
       expiresIn: '24h' 
     });
 
-    // Set token in cookie
+    
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000 
     });
 
     res.json({ 
@@ -124,7 +124,7 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
-// Login endpoint
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -173,7 +173,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Add this new route
+
 router.post('/resend-otp', async (req, res) => {
   try {
     const { email } = req.body;
@@ -183,13 +183,13 @@ router.post('/resend-otp', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Generate new OTP
+    
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
     
-    // Update user's OTP
+    
     user.otp = {
       code: otp,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes expiry
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) 
     };
     
     await user.save();

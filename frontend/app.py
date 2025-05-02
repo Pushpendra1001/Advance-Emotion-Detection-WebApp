@@ -32,7 +32,7 @@ if not os.path.exists(EMOTIONS_CSV):
 model = None
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-emotion_labels = ['angry', 'happy', 'neutral']  
+emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']  
 active_sessions = {}
 active_cameras = {}
 
@@ -46,6 +46,12 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 def find_model_file():
     print("Searching for model file...")
     possible_paths = [
+        os.path.join('frontend', 'src', 'models', 'facial_expression_cnn.h5'),
+        os.path.join('src', 'models', 'facial_expression_cnn.h5'),
+        'facial_expression_cnn.h5',
+        os.path.join('models', 'facial_expression_cnn.h5'),
+        os.path.join('..', 'models', 'facial_expression_cnn.h5'),
+        
         os.path.join('frontend', 'src', 'models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras'),
         os.path.join('src', 'models', 'emotion_recognition_model_filtered(Angry,happy,neutral).keras'),
         'emotion_recognition_model_filtered(Angry,happy,neutral).keras',
@@ -57,12 +63,21 @@ def find_model_file():
         if os.path.exists(path):
             print(f"Found model at: {path}")
             return path
-            
     
-    print("Searching entire directory for custom emotion model...")
+    
+    print("Searching entire directory for facial expression model...")
     for root, _, files in os.walk(os.getcwd()):
         for file in files:
-            if 'emotion_recognition_model_filtered' in file and file.endswith('.keras'):
+            if 'facial_expression_cnn' in file and file.endswith('.h5'):
+                path = os.path.join(root, file)
+                print(f"Found H5 model at: {path}")
+                return path
+                
+    
+    print("Searching for any emotion model...")
+    for root, _, files in os.walk(os.getcwd()):
+        for file in files:
+            if ('emotion' in file.lower() or 'facial' in file.lower()) and (file.endswith('.h5') or file.endswith('.keras')):
                 path = os.path.join(root, file)
                 print(f"Found model at: {path}")
                 return path
@@ -70,12 +85,39 @@ def find_model_file():
     return None
 
 
+def validate_model_labels():
+    """Validate that the model's output matches our emotion labels"""
+    try:
+        global emotion_labels  
+        
+        if model is None:
+            print("No model to validate")
+            return
+            
+        output_shape = model.output_shape
+        if output_shape[1] != len(emotion_labels):
+            print(f"WARNING: Model outputs {output_shape[1]} classes but we have {len(emotion_labels)} emotion labels!")
+            print("This mismatch will cause incorrect emotion labeling.")
+            
+            
+            if output_shape[1] == 7 and len(emotion_labels) != 7:
+                print("Updating emotion labels to match 7-class model")
+                emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+            elif output_shape[1] == 3 and len(emotion_labels) != 3:
+                print("Updating emotion labels to match 3-class model")
+                emotion_labels = ['angry', 'happy', 'neutral']
+                
+        print(f"Model validated: {output_shape[1]} outputs match {len(emotion_labels)} emotion labels")
+    except Exception as e:
+        print(f"Error validating model labels: {str(e)}") 
+
 try:
     MODEL_PATH = find_model_file()
     if MODEL_PATH:
         print(f"Loading model from {MODEL_PATH}")
         model = tf.keras.models.load_model(MODEL_PATH)
         print("Model loaded successfully!")
+        validate_model_labels()  
     else:
         print("ERROR: Emotion model not found. Emotion detection will not work.")
 except Exception as e:
@@ -661,67 +703,42 @@ def create_simple_emotion_model():
         return None
 
 def preprocess_face_for_emotion(face_image):
-    """Apply additional preprocessing to help with emotion recognition"""
+    """Apply additional preprocessing to help with emotion recognition based on CNN model"""
     try:
-        
         if model is None:
             print("Warning: Model not loaded in preprocess_face_for_emotion")
             return None
-            
         
         
-        expected_shape = model.input_shape
-        expected_channels = expected_shape[-1] if expected_shape else 3
+        expected_shape = get_model_input_shape(model)
+        expected_channels = expected_shape[-1] if expected_shape else 1  
         print(f"Model expects {expected_channels} channels")
         
         
+        if len(face_image.shape) == 2:
+            gray_image = face_image
+        else:
+            gray_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+        
+        
+        resized = cv2.resize(gray_image, (48, 48))
+        
+        
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(resized)
+        
+        
+        normalized = enhanced.astype("float32") / 255.0
+        
+        
         if expected_channels == 1:
-            
-            if len(face_image.shape) == 2:
-                gray_image = face_image
-            else:
-                
-                gray_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
-                
-            
-            resized = cv2.resize(gray_image, (48, 48))
-            
-            
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(resized)
-            
-            
-            normalized = enhanced.astype("float32") / 255.0
-            
-            
             normalized = normalized.reshape(48, 48, 1)
+        else:
             
-            print(f"Preprocessed grayscale image shape: {normalized.shape}")
-            return normalized
-            
-        else:  
-            
-            if len(face_image.shape) == 2:  
-                face_image = cv2.cvtColor(face_image, cv2.COLOR_GRAY2RGB)
-            elif face_image.shape[2] == 3:  
-                face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-            
-            
-            resized = cv2.resize(face_image, (48, 48))
-            
-            
-            lab = cv2.cvtColor(resized, cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            cl = clahe.apply(l)
-            enhanced_lab = cv2.merge((cl, a, b))
-            enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
-            
-            
-            normalized = enhanced_rgb.astype("float32") / 255.0
-            
-            print(f"Preprocessed RGB image shape: {normalized.shape}")
-            return normalized
+            normalized = np.stack([normalized] * 3, axis=-1)
+        
+        print(f"Preprocessed image shape: {normalized.shape}")
+        return normalized
             
     except Exception as e:
         print(f"Error in preprocess_face_for_emotion: {str(e)}")
@@ -733,11 +750,14 @@ def preprocess_face_for_emotion(face_image):
 def balance_emotion_predictions(preds, emotion_labels):
     """Apply bias correction to handle class imbalance"""
     
-    
     bias_correction = {
-        'angry': 1.2,   
-        'happy': 0.85,  
-        'neutral': 1.1  
+        'angry': 1.2,
+        'disgust': 1.1,  
+        'fear': 1.15,    
+        'happy': 0.85,   
+        'neutral': 1.1,
+        'sad': 1.1,
+        'surprise': 0.95
     }
     
     adjusted_preds = preds.copy()
@@ -746,6 +766,7 @@ def balance_emotion_predictions(preds, emotion_labels):
             adjusted_preds[0][i] *= bias_correction[emotion.lower()]
     
     return adjusted_preds
+
 def detect_faces(image):
     """
     Detect faces in an image using OpenCV's face cascade

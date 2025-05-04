@@ -99,7 +99,6 @@ def validate_model_labels():
             print(f"WARNING: Model outputs {output_shape[1]} classes but we have {len(emotion_labels)} emotion labels!")
             print("This mismatch will cause incorrect emotion labeling.")
             
-            
             if output_shape[1] == 7 and len(emotion_labels) != 7:
                 print("Updating emotion labels to match 7-class model")
                 emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
@@ -1035,13 +1034,44 @@ def get_analytics():
         emotions_by_model_list = list(emotions_by_model.values())
         
         
-        emotions_by_time = []
+        emotions_by_time = {}
         for entry in emotions_data:
-            emotions_by_time.append({
-                'timestamp': entry['timestamp'],
-                'emotion': entry['emotion'],
-                'count': 1
-            })
+            try:
+                dt = datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
+                
+                minute_key = dt.strftime('%Y-%m-%d %H:%M:00')
+                
+                
+                if minute_key not in emotions_by_time:
+                    emotions_by_time[minute_key] = {
+                        'timestamp': minute_key,
+                        'count': 0,
+                        'emotions': {
+                            'angry': 0,
+                            'disgust': 0,
+                            'fear': 0,
+                            'happy': 0,
+                            'neutral': 0,
+                            'sad': 0,
+                            'surprise': 0
+                        }
+                    }
+                
+                
+                emotions_by_time[minute_key]['count'] += 1
+                
+                
+                emotion = entry.get('emotion', 'unknown').lower()
+                if emotion in emotions_by_time[minute_key]['emotions']:
+                    emotions_by_time[minute_key]['emotions'][emotion] += 1
+                
+            except Exception as e:
+                print(f"Error processing timestamp {entry.get('timestamp')}: {str(e)}")
+
+        
+        emotions_by_time_list = list(emotions_by_time.values())
+        emotions_by_time_list.sort(key=lambda x: x['timestamp'])
+
         
         
         session_ids = set([entry['session_id'] for entry in emotions_data if entry['session_id']])
@@ -1101,7 +1131,7 @@ def get_analytics():
         
         response_data = {
             'emotionsByModel': emotions_by_model_list,
-            'emotionsByTime': emotions_by_time,
+            'emotionsByTime': emotions_by_time_list,
             'sessionHistory': session_history
         }
         print(f"Returning analytics data with {len(session_history)} sessions")

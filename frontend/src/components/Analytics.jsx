@@ -201,6 +201,7 @@ const Analytics = () => {
     const dailySessionCounts = calculateDailySessions(filteredSessions);
 
     return {
+      emotionsByTime: rawData.emotionsByTime || [],
       emotionsByModel: emotionsWithPercentage,
       emotionTrends,
       patientStats,
@@ -822,19 +823,83 @@ const Analytics = () => {
             <Paper elevation={3} sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>Emotion Trends Over Time</Typography>
               <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={data.emotionsByTime}>
+                <LineChart data={data.emotionsByTime || []}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="timestamp" tickFormatter={(timestamp) => new Date(timestamp).toLocaleDateString()} />
-                  <YAxis />
-                  <Tooltip labelFormatter={(timestamp) => new Date(timestamp).toLocaleString()} />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="count" 
-                    stroke="#8884d8" 
-                    activeDot={{ r: 8 }}
-                    name="Emotion Detections"
+                  <XAxis 
+                    dataKey="timestamp" 
+                    tickFormatter={(timestamp) => {
+                      if (!timestamp) return '';
+                      try {
+                        const date = new Date(timestamp);
+                        return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+                      } catch (e) {
+                        console.error('Error formatting timestamp:', e);
+                        return '';
+                      }
+                    }} 
                   />
+                  <YAxis />
+                  <Tooltip 
+                    labelFormatter={(timestamp) => {
+                      if (!timestamp) return '';
+                      try {
+                        return new Date(timestamp).toLocaleString();
+                      } catch (e) {
+                        return timestamp;
+                      }
+                    }} 
+                  />
+                  <Legend />
+                  {data.emotionsByTime.length > 0 && data.emotionsByTime[0].emotions && (
+                    <>
+                      <Line 
+                        type="monotone" 
+                        dataKey="emotions.happy" 
+                        stroke="#00C49F" 
+                        name="Happy" 
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 6 }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="emotions.neutral" 
+                        stroke="#0088FE" 
+                        name="Neutral"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 6 }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="emotions.sad" 
+                        stroke="#FFBB28" 
+                        name="Sad"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 6 }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="emotions.angry" 
+                        stroke="#FF8042" 
+                        name="Angry"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </>
+                  )}
+                  {/* Keep the total count line as fallback */}
+                  {(!data.emotionsByTime.length || !data.emotionsByTime[0].emotions) && (
+                    <Line 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#8884d8" 
+                      activeDot={{ r: 8 }}
+                      name="Total Detections"
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </Paper>

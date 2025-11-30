@@ -1,7 +1,6 @@
 
 # Advance Emotion Detection WebApp
-
-This project is an advanced emotion detection application designed for use in doctor-patient and teacher-student scenarios. It leverages React for the frontend, Node.js/Express with MongoDB for the backend, and Python (Flask) for real-time emotion detection using deep learning models. The system records and analyzes emotions during sessions, providing valuable insights for doctors, patients, teachers, and students.
+Real-time emotion detection and analytics for Counselor , Therapist , Psychologist sessions. Built with React, Node.js, MongoDB, and Python (Flask) using deep learning to analyze emotions from webcam video and visualize engagement.
 
 ## Features
 - **Doctor/Patient Module:** Track and visualize patient emotions during sessions to help doctors understand patient feelings and reactions.
@@ -80,4 +79,5 @@ npm run dev
 - Ensure all three servers (Node.js, Python, React) are running for full functionality.
 - The Python backend handles real-time emotion detection and must be running for webcam features.
 - MongoDB must be accessible as configured in `backend/.env`.
+
 
